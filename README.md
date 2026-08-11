@@ -1,2 +1,0 @@
-# ylcpdaily
-YLCP daily operation
