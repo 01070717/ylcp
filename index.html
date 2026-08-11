@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>每日值班與即時天氣 Dashboard</title>
+  <!-- Tailwind CSS 快速排版 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- MSAL.js 用於 Microsoft 帳號認證 -->
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col justify-between">
+
+  <!-- 天氣警告醒目提示列 (如有生效警告時顯示) -->
+  <div id="warningBar" class="hidden bg-red-600 text-white px-4 py-2 text-sm font-bold flex items-center justify-between shadow-md">
+    <div class="flex items-center space-x-2">
+      <span class="animate-pulse">⚠️</span>
+      <span id="warningText">警告訊息載入中...</span>
+    </div>
+  </div>
+
+  <!-- 頂部列 -->
+  <header class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
+    <h1 class="text-xl font-bold">每日資訊 Dashboard</h1>
+    <button id="loginBtn" onclick="handleLogin()" class="bg-white text-blue-600 px-3 py-1 rounded-lg text-sm font-semibold shadow hover:bg-slate-100 transition">
+      Microsoft 登入
+    </button>
+  </header>
+
+  <!-- 主內容區域（支援滑動手勢） -->
+  <main id="swipeContainer" class="flex-1 p-4 max-w-lg mx-auto w-full select-none touch-pan-y space-y-4">
+    
+    <!-- 日期導覽卡片 -->
+    <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow">
+      <button onclick="changeDate(-1)" class="px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200">← 上一天</button>
+      <div id="currentDateDisplay" class="text-lg font-bold text-center text-slate-800">載入中...</div>
+      <button onclick="changeDate(1)" class="px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200">下一天 →</button>
+    </div>
+
+    <!-- 香港天文台即時天氣卡片 -->
+    <div class="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 p-4 rounded-xl shadow">
+      <div class="flex justify-between items-center mb-2 border-b border-blue-100 pb-2">
+        <span class="text-xs font-bold text-blue-600 tracking-wider">香港天文台即時天氣</span>
+        <span id="weatherUpdateTime" class="text-xs text-slate-400">--:--</span>
+      </div>
+
+      <div class="flex items-center space-x-4">
+        <!-- 天氣圖示 -->
+        <div class="flex-shrink-0">
+          <img id="weatherIcon" class="w-16 h-16 object-contain hidden" alt="Weather Icon" />
+          <div id="weatherIconPlaceholder" class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-2xl">🌤️</div>
+        </div>
+
+        <!-- 氣溫與狀況描述 -->
+        <div class="flex-1">
+          <div id="temperatureDisplay" class="text-3xl font-extrabold text-slate-800">--°C</div>
+          <div id="weatherDesc" class="text-sm font-semibold text-slate-600">讀取天文台資料中...</div>
+        </div>
+      </div>
+
+      <!-- 細項數據 (濕度 / UV) -->
+      <div id="weatherDetails" class="grid grid-cols-2 gap-2 mt-3 pt-2 border-t border-blue-100 text-xs text-slate-500 hidden">
+        <div>相對濕度: <span id="humidityVal" class="font-bold text-slate-700">--</span></div>
+        <div>UV 指數: <span id="uvVal" class="font-bold text-slate-700">--</span></div>
+      </div>
+    </div>
+
+    <!-- 當日特別活動卡片 (來自 Excel) -->
+    <div class="bg-white p-4 rounded-xl shadow">
+      <div class="flex items-center space-x-2 text-sm font-bold text-red-500 mb-2 border-b pb-2">
+        <span>📌</span>
+        <span>當日特別活動</span>
+      </div>
+      <ul id="eventsList" class="space-y-1.5 text-sm text-slate-600">
+        <li class="text-slate-400 italic">尚無資料（請先登入 MS 帳號）</li>
+      </ul>
+    </div>
+
+    <!-- 職員值班表 (來自 Excel) -->
+    <div class="bg-white p-4 rounded-xl shadow">
+      <div class="flex items-center space-x-2 text-sm font-bold text-indigo-600 mb-2 border-b pb-2">
+        <span>👥</span>
+        <span>職員值班表 (Duty Roster)</span>
+      </div>
+      <div id="rosterList" class="space-y-2">
+        <div class="text-sm text-slate-400 italic">尚無資料（請先登入 MS 帳號）</div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="text-center p-4 text-xs text-slate-400">
+    左右滑動螢幕切換日期 | 天氣資料來自香港天文台 Open Data API
+  </footer>
+
+  <script>
+    // --- 1. 設定與變數 ---
+    let currentDate = new Date();
+    let accessToken = "";
+
+    // Microsoft MSAL 設定
+    const msalConfig = {
+      auth: {
+        clientId: "YOUR_AZURE_CLIENT_ID", // 請替換為 Azure 註冊的 Client ID
+        authority: "https://login.microsoftonline.com/common",
+        redirectUri: window.location.href
+      }
+    };
+    const msalInstance = new msal.PublicClientApplication(msalConfig);
+    const EXCEL_FILE_PATH = "me/drive/root:/DutyRoster.xlsx:"; // 請依實際路徑修改
+
+    // --- 2. 香港天文台 API 介接 ---
+    async function fetchHKOWeather(targetDate) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const targetDateStr = targetDate.toISOString().split('T')[0];
+
+      // 重置介面元素
+      document.getElementById("weatherDetails").classList.add("hidden");
+      document.getElementById("weatherIcon").classList.add("hidden");
+      document.getElementById("weatherIconPlaceholder").classList.remove("hidden");
+
+      try {
+        // 情況 A：當前日期 -> 呼叫即時天氣報告 (rhrread)
+        if (targetDateStr === todayStr) {
+          const res = await fetch("https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=tc");
+          const data = await res.json();
+
+          // A-1. 氣溫 (優先取香港天文台站點)
+          const hkoTemp = data.temperature?.data?.find(i => i.place === "香港天文台") || data.temperature?.data[0];
+          document.getElementById("temperatureDisplay").innerText = hkoTemp ? `${hkoTemp.value}°C` : "--°C";
+
+          // A-2. 濕度與 UV 指數
+          const humidity = data.humidity?.data[0]?.value;
+          const uv = data.uvindex?.data[0]?.value;
+          if (humidity) document.getElementById("humidityVal").innerText = `${humidity}%`;
+          if (uv !== undefined) document.getElementById("uvVal").innerText = `${uv} (${data.uvindex?.data[0]?.desc || ''})`;
+          document.getElementById("weatherDetails").classList.remove("hidden");
+
+          // A-3. 天氣圖示 (Icon)
+          if (data.icon && data.icon.length > 0) {
+            const iconCode = data.icon[0];
+            const iconImg = document.getElementById("weatherIcon");
+            iconImg.src = `https://www.hko.gov.hk/images/HKOWeb_Icon/pic${iconCode}.png`;
+            iconImg.classList.remove("hidden");
+            document.getElementById("weatherIconPlaceholder").classList.add("hidden");
+          }
+
+          // A-4. 天氣概況描述
+          document.getElementById("weatherDesc").innerText = data.rainfall?.data?.some(r => r.max > 0) ? "部分地區有雨" : "當前即時氣溫";
+          document.getElementById("weatherUpdateTime").innerText = data.updateTime ? data.updateTime.substring(11, 16) : "";
+
+          // A-5. 天氣警告提示列
+          if (data.warningMessage && data.warningMessage.length > 0) {
+            document.getElementById("warningBar").classList.remove("hidden");
+            document.getElementById("warningText").innerText = data.warningMessage.join(' | ');
+          } else {
+            document.getElementById("warningBar").classList.add("hidden");
+          }
+
+        } 
+        // 情況 B：未來日期 (9天內) -> 呼叫九天天氣預報 (fnd)
+        else {
+          document.getElementById("warningBar").classList.add("hidden");
+          const res = await fetch("https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=fnd&lang=tc");
+          const data = await res.json();
+
+          const formattedTargetDate = targetDateStr.replace(/-/g, '');
+          const forecast = data.weatherForecast?.find(i => i.forecastDate === formattedTargetDate);
+
+          if (forecast) {
+            document.getElementById("temperatureDisplay").innerText = `${forecast.forecastMintemp.value}°C - ${forecast.forecastMaxtemp.value}°C`;
+            document.getElementById("weatherDesc").innerText = forecast.forecastWeather;
+            document.getElementById("weatherUpdateTime").innerText = "預報";
+
+            // 預報圖示
+            if (forecast.ForecastIcon) {
+              const iconImg = document.getElementById("weatherIcon");
+              iconImg.src = `https://www.hko.gov.hk/images/HKOWeb_Icon/pic${forecast.ForecastIcon}.png`;
+              iconImg.classList.remove("hidden");
+              document.getElementById("weatherIconPlaceholder").classList.add("hidden");
+            }
+          } else {
+            document.getElementById("temperatureDisplay").innerText = "--°C";
+            document.getElementById("weatherDesc").innerText = "超出天文台 9 天預報範圍";
+            document.getElementById("weatherUpdateTime").innerText = "";
+          }
+        }
+      } catch (err) {
+        console.error("天文台 API 錯誤:", err);
+        document.getElementById("weatherDesc").innerText = "天文台資料讀取失敗";
+      }
+    }
+
+    // --- 3. Microsoft Graph API 讀取 Excel ---
+    async function handleLogin() {
+      try {
+        const loginResponse = await msalInstance.loginPopup({ scopes: ["Files.Read.All"] });
+        accessToken = loginResponse.accessToken;
+        document.getElementById("loginBtn").innerText = "已登入";
+        loadDataForDate(currentDate);
+      } catch (err) {
+        console.error("登入失敗:", err);
+      }
+    }
+
+    async function fetchExcelTable(sheetName) {
+      if (!accessToken) return null;
+      const url = `https://graph.microsoft.com/v1.0/${EXCEL_FILE_PATH}/workbook/worksheets('${sheetName}')/usedRange`;
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const data = await response.json();
+      return data.values;
+    }
+
+    async function loadExcelRosterAndEvents(dateStr) {
+      try {
+        const overviewData = await fetchExcelTable("DailyOverview");
+        const rosterData = await fetchExcelTable("DutyRoster");
+
+        // 特殊活動
+        if (overviewData && overviewData.length > 1) {
+          const match = overviewData.find(row => row[0] === dateStr);
+          const events = match && match[2] ? match[2].split(',') : [];
+          document.getElementById("eventsList").innerHTML = events.length > 0 
+            ? events.map(e => `<li>• ${e.trim()}</li>`).join('') 
+            : '<li class="text-slate-400">今日無特別活動</li>';
+        }
+
+        // 值班表
+        if (rosterData && rosterData.length > 1) {
+          const matchedRoster = rosterData.filter(row => row[0] === dateStr);
+          if (matchedRoster.length > 0) {
+            document.getElementById("rosterList").innerHTML = matchedRoster.map(row => `
+              <div class="flex justify-between items-center p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+                <div>
+                  <div class="font-bold text-slate-800 text-sm">${row[1]}</div>
+                  <div class="text-xs text-slate-500">${row[3] || '一般值班'}</div>
+                </div>
+                <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">${row[2]}</span>
+              </div>
+            `).join('');
+          } else {
+            document.getElementById("rosterList").innerHTML = '<div class="text-sm text-slate-400 italic">本日無排班記錄</div>';
+          }
+        }
+      } catch (e) {
+        console.error("Excel 讀取錯誤:", e);
+      }
+    }
+
+    // --- 4. 核心流程與手勢切換 ---
+    function loadDataForDate(date) {
+      const dateStr = date.toISOString().split('T')[0];
+      document.getElementById("currentDateDisplay").innerText = dateStr;
+
+      // 1. 載入天文台天氣
+      fetchHKOWeather(date);
+
+      // 2. 載入 Excel 活動與值班表
+      if (accessToken) {
+        loadExcelRosterAndEvents(dateStr);
+      }
+    }
+
+    function changeDate(days) {
+      currentDate.setDate(currentDate.getDate() + days);
+      loadDataForDate(currentDate);
+    }
+
+    // 手勢左右滑動監聽
+    let touchStartX = 0;
+    let touchEndX = 0;
+    const container = document.getElementById("swipeContainer");
+
+    container.addEventListener('touchstart', e => { touchStartX = e.changedTouches[0].screenX; }, false);
+    container.addEventListener('touchend', e => {
+      touchEndX = e.changedTouches[0].screenX;
+      if (touchEndX < touchStartX - 50) changeDate(1);  // 向左滑 -> 下一天
+      if (touchEndX > touchStartX + 50) changeDate(-1); // 向右滑 -> 上一天
+    }, false);
+
+    // 初始載入當天資料
+    loadDataForDate(currentDate);
+  </script>
+</body>
+</html>
