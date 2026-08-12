@@ -33,12 +33,6 @@
       <button onclick="changeDate(1)" class="px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200">下一天 →</button>
     </div>
 
-    <!-- 外借 1103 提醒卡片（僅在選取日期存在於分頁 "1103" 時顯示） -->
-    <div id="borrowNoticeCard" class="hidden bg-yellow-100 border border-yellow-300 p-4 rounded-xl shadow flex items-center space-x-3 text-yellow-950 font-bold">
-      <span class="text-xl">📢</span>
-      <span class="text-sm">今早預定外借1103</span>
-    </div>
-
     <!-- 香港天文台即時天氣卡片 -->
     <div class="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 p-4 rounded-xl shadow">
       <div class="flex justify-between items-center mb-2 border-b border-blue-100 pb-2">
@@ -355,19 +349,6 @@
         return;
       }
 
-      // --- 判斷 selected date 是否存在於分頁 "1103" 的 Column A 中，若有則顯示外借提示卡片 ---
-      const sheet1103Data = data['1103'] || [];
-      const sheet1103Rows = sheet1103Data.slice(1);
-      const dates1103 = sheet1103Rows.map(row => formatDateString(row[0]));
-      const existsIn1103 = dates1103.includes(dateStr);
-      
-      const borrowCard = document.getElementById("borrowNoticeCard");
-      if (existsIn1103) {
-        borrowCard.classList.remove("hidden");
-      } else {
-        borrowCard.classList.add("hidden");
-      }
-
       // --- A. 渲染 DailyOverview 特別活動 ---
       const overviewRows = (data.overview || []).slice(1);
       const matchedEvents = overviewRows.filter(row => formatDateString(row[0]) === dateStr);
@@ -581,7 +562,7 @@
       // 1. 載入天文台天氣
       fetchHKOWeather(date);
 
-      // 2. 載入 Google Sheets 資料 (活動 & 值班 & 提醒卡片)
+      // 2. 載入 Google Sheets 資料 (活動 & 值班)
       renderExcelData(dateStr);
     }
 
