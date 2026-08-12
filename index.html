@@ -7,7 +7,7 @@
   <!-- Tailwind CSS 快速排版 -->
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col justify-between">
+<body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col justify-between pb-16">
 
   <!-- 天氣警告醒目提示列 -->
   <div id="warningBar" class="hidden bg-red-600 text-white px-4 py-2 text-sm font-bold flex items-center justify-between shadow-md">
@@ -61,6 +61,17 @@
       </div>
     </div>
 
+    <!-- 職員值班表卡片 (來自 DutyRoster Sheet) -->
+    <div class="bg-white p-4 rounded-xl shadow">
+      <div class="flex items-center space-x-2 text-sm font-bold text-indigo-600 mb-2 border-b pb-2">
+        <span>👥</span>
+        <span>職員值班表</span>
+      </div>
+      <div id="rosterList" class="space-y-3">
+        <div class="text-sm text-slate-400 italic">載入資料中...</div>
+      </div>
+    </div>
+
     <!-- 當日預定活動卡片 (來自 DailyOverview Sheet) -->
     <div class="bg-white p-4 rounded-xl shadow">
       <div class="flex items-center space-x-2 text-sm font-bold text-red-500 mb-2 border-b pb-2">
@@ -72,14 +83,27 @@
       </div>
     </div>
 
-    <!-- 職員值班表卡片 (來自 DutyRoster Sheet) -->
+    <!-- 活動空檔查詢卡片 -->
     <div class="bg-white p-4 rounded-xl shadow">
-      <div class="flex items-center space-x-2 text-sm font-bold text-indigo-600 mb-2 border-b pb-2">
-        <span>👥</span>
-        <span>職員值班表</span>
+      <div class="flex items-center space-x-2 text-sm font-bold text-amber-600 mb-3 border-b pb-2">
+        <span>🔍</span>
+        <span>活動空檔查詢卡片</span>
       </div>
-      <div id="rosterList" class="space-y-3">
-        <div class="text-sm text-slate-400 italic">載入資料中...</div>
+      <div class="flex space-x-2 mb-3">
+        <input 
+          type="date" 
+          id="slotSearchDate" 
+          class="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+        />
+        <button 
+          onclick="searchActivitySlot()" 
+          class="px-4 py-1.5 text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white rounded-lg shadow-sm">
+          查詢
+        </button>
+      </div>
+      <!-- 查詢結果區域 -->
+      <div id="slotSearchResult" class="space-y-3 text-xs">
+        <div class="text-slate-400 italic text-center py-2">請選擇日期查詢</div>
       </div>
     </div>
 
@@ -110,6 +134,11 @@
   <footer class="text-center p-4 text-xs text-slate-400">
     左右滑動螢幕切換日期 | 資料來源 香港天文台 Open Data API
   </footer>
+
+  <!-- 底部醒目提示列（僅在選取日期存在於 Sheet "1103" 的 Column A 時顯示） -->
+  <div id="borrowNoticeBar" class="hidden fixed bottom-0 left-0 right-0 bg-amber-500 text-white px-4 py-3 text-center font-bold text-sm shadow-lg z-50 animate-bounce">
+    📢 今早預定外借1103
+  </div>
 
   <script>
     // --- 1. 設定與變數 ---
@@ -325,6 +354,19 @@
         return;
       }
 
+      // --- 判斷 selected date 是否存在於 Sheet "1103" 的 Column A 中，若有則顯示底部外借提示列 ---
+      const sheet1103Data = data['1103'] || data['sheet1103'] || [];
+      const sheet1103Rows = sheet1103Data.slice(1);
+      const dates1103 = sheet1103Rows.map(row => formatDateString(row[0]));
+      const existsIn1103 = dates1103.includes(dateStr);
+      
+      const borrowBar = document.getElementById("borrowNoticeBar");
+      if (existsIn1103) {
+        borrowBar.classList.remove("hidden");
+      } else {
+        borrowBar.classList.add("hidden");
+      }
+
       // --- A. 渲染 DailyOverview 特別活動 ---
       const overviewRows = (data.overview || []).slice(1);
       const matchedEvents = overviewRows.filter(row => formatDateString(row[0]) === dateStr);
@@ -401,6 +443,85 @@
       } else {
         document.getElementById("rosterList").innerHTML = '<div class="text-sm text-slate-400 italic">本日無排班記錄</div>';
       }
+
+      // 自動同步更新活動空檔查詢欄位與資料
+      document.getElementById("slotSearchDate").value = dateStr;
+      searchActivitySlot(dateStr);
+    }
+
+    // --- 3.5 活動空檔查詢卡片邏輯 ---
+    async function searchActivitySlot(targetDateStr) {
+      const searchDate = targetDateStr || document.getElementById("slotSearchDate").value;
+      const resultContainer = document.getElementById("slotSearchResult");
+
+      if (!searchDate) {
+        resultContainer.innerHTML = '<div class="text-slate-400 italic text-center py-2">請選擇日期</div>';
+        return;
+      }
+
+      const data = await fetchGoogleSheetsData();
+      if (!data) {
+        resultContainer.innerHTML = '<div class="text-red-400 text-center py-2">資料讀取失敗</div>';
+        return;
+      }
+
+      // 1. 查詢活動清單
+      const overviewRows = (data.overview || []).slice(1);
+      const matchedEvents = overviewRows.filter(row => formatDateString(row[0]) === searchDate);
+
+      let eventsHtml = "";
+      if (matchedEvents.length > 0) {
+        eventsHtml = matchedEvents.map(row => {
+          const startTime = formatTimeString(row[1]);
+          const endTime = formatTimeString(row[2]);
+          const eventName = row[3] || "未命名活動";
+          return `<li class="text-slate-700">🕒 <b>${startTime}-${endTime}</b>: ${eventName}</li>`;
+        }).join("");
+      } else {
+        eventsHtml = `<li class="text-slate-400 italic">該日無預定活動</li>`;
+      }
+
+      // 2. 查詢指定職員 (Robin, Lawrence, Anson, Grace) 的班表
+      const rosterRows = (data.roster || []).slice(1);
+      const headers = (data.roster || [])[0] || [];
+      const matchedRoster = rosterRows.find(row => formatDateString(row[0]) === searchDate);
+
+      const targetStaffs = ["Robin", "Lawrence", "Anson", "Grace"];
+      let staffHtml = "";
+
+      if (matchedRoster) {
+        staffHtml = targetStaffs.map(staff => {
+          const staffIndex = headers.findIndex(h => String(h || "").trim().toLowerCase() === staff.toLowerCase());
+          const shift = (staffIndex !== -1 && matchedRoster[staffIndex]) ? matchedRoster[staffIndex] : "無紀錄";
+          const style = getShiftCardStyle(shift);
+
+          return `
+            <div class="${style.card} p-1.5 rounded border text-center">
+              <div class="font-bold text-slate-700">${staff}</div>
+              <div class="${style.shift} font-semibold">${shift}</div>
+            </div>
+          `;
+        }).join("");
+      } else {
+        staffHtml = `<div class="col-span-4 text-slate-400 italic text-center">無排班資料</div>`;
+      }
+
+      resultContainer.innerHTML = `
+        <div class="bg-amber-50/50 p-2.5 rounded-lg border border-amber-100 space-y-2">
+          <div>
+            <div class="font-bold text-slate-700 mb-1">📅 ${searchDate} 預定活動：</div>
+            <ul class="list-disc list-inside space-y-1 pl-1">
+              ${eventsHtml}
+            </ul>
+          </div>
+          <div class="border-t border-amber-200/60 pt-2">
+            <div class="font-bold text-slate-700 mb-1.5">👤 指定職員排班狀況：</div>
+            <div class="grid grid-cols-4 gap-1.5">
+              ${staffHtml}
+            </div>
+          </div>
+        </div>
+      `;
     }
 
     // --- 4. POS 存貨即時搜尋邏輯 ---
@@ -463,7 +584,7 @@
       // 1. 載入天文台天氣
       fetchHKOWeather(date);
 
-      // 2. 載入 Google Sheets 資料 (活動 & 值班)
+      // 2. 載入 Google Sheets 資料 (活動 & 值班 & 提示列 & 空檔查詢)
       renderExcelData(dateStr);
     }
 
