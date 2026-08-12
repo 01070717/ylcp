@@ -9,12 +9,18 @@
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col justify-between pb-16">
 
-  <!-- 天氣警告醒目提示列 -->
+  <!-- 1. 天氣警告醒目提示列 -->
   <div id="warningBar" class="hidden bg-red-600 text-white px-4 py-2 text-sm font-bold flex items-center justify-between shadow-md">
     <div class="flex items-center space-x-2">
       <span class="animate-pulse">⚠️</span>
       <span id="warningText">警告訊息載入中...</span>
     </div>
+  </div>
+
+  <!-- 2. 外借醒目提示列（改至天氣警告下方、黃色背景，僅在選取日期存在於分頁 "1103" 時顯示） -->
+  <div id="borrowNoticeBar" class="hidden bg-yellow-400 text-yellow-950 px-4 py-2.5 text-center font-bold text-sm shadow-md flex items-center justify-center space-x-2 border-b border-yellow-500 animate-pulse">
+    <span>📢</span>
+    <span>今早預定外借1103</span>
   </div>
 
   <!-- 頂部列 -->
@@ -134,11 +140,6 @@
   <footer class="text-center p-4 text-xs text-slate-400">
     左右滑動螢幕切換日期 | 資料來源 香港天文台 Open Data API
   </footer>
-
-  <!-- 底部醒目提示列（僅在選取日期存在於 Sheet "1103" 的 Column A 時顯示） -->
-  <div id="borrowNoticeBar" class="hidden fixed bottom-0 left-0 right-0 bg-amber-500 text-white px-4 py-3 text-center font-bold text-sm shadow-lg z-50 animate-bounce">
-    📢 今早預定外借1103
-  </div>
 
   <script>
     // --- 1. 設定與變數 ---
@@ -354,8 +355,8 @@
         return;
       }
 
-      // --- 判斷 selected date 是否存在於 Sheet "1103" 的 Column A 中，若有則顯示底部外借提示列 ---
-      const sheet1103Data = data['1103'] || data['sheet1103'] || [];
+      // --- 判斷 selected date 是否存在於分頁 "1103" 的 Column A 中，若有則顯示外借提示列 ---
+      const sheet1103Data = data['1103'] || [];
       const sheet1103Rows = sheet1103Data.slice(1);
       const dates1103 = sheet1103Rows.map(row => formatDateString(row[0]));
       const existsIn1103 = dates1103.includes(dateStr);
@@ -445,17 +446,15 @@
       }
     }
 
-    // --- 3.5 活動空檔查詢卡片邏輯 (僅在使用者點擊「查詢」按鈕時執行) ---
-    async function searchActivitySlot() {
-      const searchDate = document.getElementById("slotSearchDate").value;
+    // --- 3.5 活動空檔查詢卡片邏輯 ---
+    async function searchActivitySlot(targetDateStr) {
+      const searchDate = targetDateStr || document.getElementById("slotSearchDate").value;
       const resultContainer = document.getElementById("slotSearchResult");
 
       if (!searchDate) {
         resultContainer.innerHTML = '<div class="text-slate-400 italic text-center py-2">請選擇日期查詢</div>';
         return;
       }
-
-      resultContainer.innerHTML = '<div class="text-slate-400 italic text-center py-2">查詢中...</div>';
 
       const data = await fetchGoogleSheetsData();
       if (!data) {
@@ -582,7 +581,7 @@
       // 1. 載入天文台天氣
       fetchHKOWeather(date);
 
-      // 2. 載入 Google Sheets 資料 (活動 & 值班 & 1103 外借提示列)
+      // 2. 載入 Google Sheets 資料 (活動 & 值班 & 提示列)
       renderExcelData(dateStr);
     }
 
