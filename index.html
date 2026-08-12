@@ -21,7 +21,7 @@
 
   <!-- 頂部列 -->
   <header class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
-    <h1 class="text-xl font-bold">每日資訊 Dashboard</h1>
+    <h1 class="text-xl font-bold">YLCP Dashboard</h1>
     <button id="loginBtn" onclick="handleLogin()" class="bg-white text-blue-600 px-3 py-1 rounded-lg text-sm font-semibold shadow hover:bg-slate-100 transition">
       Microsoft 登入
     </button>
@@ -45,10 +45,10 @@
       </div>
 
       <div class="flex items-center space-x-4">
-        <!-- 天氣圖示 -->
-        <div class="flex-shrink-0">
-          <img id="weatherIcon" class="w-16 h-16 object-contain hidden" alt="Weather Icon" />
-          <div id="weatherIconPlaceholder" class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-2xl">🌤️</div>
+        <!-- 天氣圖示區域 -->
+        <div class="flex-shrink-0 relative w-16 h-16 flex items-center justify-center">
+          <img id="weatherIcon" class="w-16 h-16 object-contain hidden" alt="Weather Icon" onerror="handleImageError()" />
+          <div id="weatherIconPlaceholder" class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-3xl">🌤️</div>
         </div>
 
         <!-- 氣溫與狀況描述 -->
@@ -65,11 +65,11 @@
       </div>
     </div>
 
-    <!-- 當日特別活動卡片 (來自 Excel) -->
+    <!-- 當日預定活動卡片 (來自 Excel) -->
     <div class="bg-white p-4 rounded-xl shadow">
       <div class="flex items-center space-x-2 text-sm font-bold text-red-500 mb-2 border-b pb-2">
         <span>📌</span>
-        <span>當日特別活動</span>
+        <span>當日預定活動</span>
       </div>
       <ul id="eventsList" class="space-y-1.5 text-sm text-slate-600">
         <li class="text-slate-400 italic">尚無資料（請先登入 MS 帳號）</li>
@@ -80,7 +80,7 @@
     <div class="bg-white p-4 rounded-xl shadow">
       <div class="flex items-center space-x-2 text-sm font-bold text-indigo-600 mb-2 border-b pb-2">
         <span>👥</span>
-        <span>職員值班表 (Duty Roster)</span>
+        <span>職員值班表</span>
       </div>
       <div id="rosterList" class="space-y-2">
         <div class="text-sm text-slate-400 italic">尚無資料（請先登入 MS 帳號）</div>
@@ -109,7 +109,21 @@
     const msalInstance = new msal.PublicClientApplication(msalConfig);
     const EXCEL_FILE_PATH = "me/drive/root:/DutyRoster.xlsx:"; // 請依實際路徑修改
 
-    // --- 2. 修正後的香港天文台 API 介接邏輯 ---
+    // --- 輔助函數：格式化圖示編碼 (確保補零成雙位數) ---
+    function formatIconCode(code) {
+      if (code === undefined || code === null) return null;
+      let str = String(code).trim();
+      return str.length === 1 ? '0' + str : str;
+    }
+
+    // --- 輔助函數：圖片載入失敗時回退機制 ---
+    function handleImageError() {
+      console.warn("天文台圖示載入失敗，切換為備用 Emoji");
+      document.getElementById("weatherIcon").classList.add("hidden");
+      document.getElementById("weatherIconPlaceholder").classList.remove("hidden");
+    }
+
+    // --- 2. 天文台 API 介接邏輯 ---
     async function fetchHKOWeather(targetDate) {
       const todayStr = new Date().toISOString().split('T')[0];
       const targetDateStr = targetDate.toISOString().split('T')[0];
@@ -150,13 +164,19 @@
             document.getElementById("uvVal").innerText = "無 (夜間/未發布)";
           }
 
-          // A-3. 天氣圖示 (Icon) 安全讀取
+          // A-3. 修正：天氣圖示 (Icon) 處理
           if (Array.isArray(data.icon) && data.icon.length > 0) {
-            const iconCode = data.icon[0];
-            const iconImg = document.getElementById("weatherIcon");
-            iconImg.src = `https://www.hko.gov.hk/images/HKOWeb_Icon/pic${iconCode}.png`;
-            iconImg.classList.remove("hidden");
-            document.getElementById("weatherIconPlaceholder").classList.add("hidden");
+            const iconCode = formatIconCode(data.icon[0]);
+            if (iconCode) {
+              const iconImg = document.getElementById("weatherIcon");
+              iconImg.src = `https://www.hko.gov.hk/images/HKOWeb_Icon/pic${iconCode}.png`;
+              
+              // 當圖片順利載入時顯示圖片，隱藏預設圖示
+              iconImg.onload = () => {
+                iconImg.classList.remove("hidden");
+                document.getElementById("weatherIconPlaceholder").classList.add("hidden");
+              };
+            }
           }
 
           // A-4. 降雨與更新時間
@@ -194,11 +214,16 @@
             document.getElementById("weatherDesc").innerText = forecast.forecastWeather || "預報資料";
             document.getElementById("weatherUpdateTime").innerText = "預報";
 
-            if (forecast.ForecastIcon) {
+            // 修正：預報天氣圖示處理
+            const iconCode = formatIconCode(forecast.ForecastIcon);
+            if (iconCode) {
               const iconImg = document.getElementById("weatherIcon");
-              iconImg.src = `https://www.hko.gov.hk/images/HKOWeb_Icon/pic${forecast.ForecastIcon}.png`;
-              iconImg.classList.remove("hidden");
-              document.getElementById("weatherIconPlaceholder").classList.add("hidden");
+              iconImg.src = `https://www.hko.gov.hk/images/HKOWeb_Icon/pic${iconCode}.png`;
+              
+              iconImg.onload = () => {
+                iconImg.classList.remove("hidden");
+                document.getElementById("weatherIconPlaceholder").classList.add("hidden");
+              };
             }
           } else {
             document.getElementById("temperatureDisplay").innerText = "--°C";
@@ -208,7 +233,7 @@
         }
       } catch (err) {
         console.error("天文台 API 解析或網路錯誤:", err);
-        document.getElementById("weatherDesc").innerText = "天氣載入失敗 (請檢查網路連線)";
+        document.getElementById("weatherDesc").innerText = "天氣載入失敗";
       }
     }
 
