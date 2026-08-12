@@ -87,7 +87,7 @@
     <div class="bg-white p-4 rounded-xl shadow">
       <div class="flex items-center space-x-2 text-sm font-bold text-amber-600 mb-3 border-b pb-2">
         <span>🔍</span>
-        <span>活動空檔查詢卡片</span>
+        <span>活動空檔查詢</span>
       </div>
       <div class="flex space-x-2 mb-3">
         <input 
@@ -443,21 +443,19 @@
       } else {
         document.getElementById("rosterList").innerHTML = '<div class="text-sm text-slate-400 italic">本日無排班記錄</div>';
       }
-
-      // 自動同步更新活動空檔查詢欄位與資料
-      document.getElementById("slotSearchDate").value = dateStr;
-      searchActivitySlot(dateStr);
     }
 
-    // --- 3.5 活動空檔查詢卡片邏輯 ---
-    async function searchActivitySlot(targetDateStr) {
-      const searchDate = targetDateStr || document.getElementById("slotSearchDate").value;
+    // --- 3.5 活動空檔查詢卡片邏輯 (僅在使用者點擊「查詢」按鈕時執行) ---
+    async function searchActivitySlot() {
+      const searchDate = document.getElementById("slotSearchDate").value;
       const resultContainer = document.getElementById("slotSearchResult");
 
       if (!searchDate) {
-        resultContainer.innerHTML = '<div class="text-slate-400 italic text-center py-2">請選擇日期</div>';
+        resultContainer.innerHTML = '<div class="text-slate-400 italic text-center py-2">請選擇日期查詢</div>';
         return;
       }
+
+      resultContainer.innerHTML = '<div class="text-slate-400 italic text-center py-2">查詢中...</div>';
 
       const data = await fetchGoogleSheetsData();
       if (!data) {
@@ -584,7 +582,7 @@
       // 1. 載入天文台天氣
       fetchHKOWeather(date);
 
-      // 2. 載入 Google Sheets 資料 (活動 & 值班 & 提示列 & 空檔查詢)
+      // 2. 載入 Google Sheets 資料 (活動 & 值班 & 1103 外借提示列)
       renderExcelData(dateStr);
     }
 
