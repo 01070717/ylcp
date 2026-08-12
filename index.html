@@ -3,15 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>每日值班與即時天氣 Dashboard</title>
+  <title>每日資訊與 POS 查詢 Dashboard</title>
   <!-- Tailwind CSS 快速排版 -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- MSAL.js 用於 Microsoft 帳號認證 -->
-  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col justify-between">
 
-  <!-- 天氣警告醒目提示列 (如有生效警告時顯示) -->
+  <!-- 天氣警告醒目提示列 -->
   <div id="warningBar" class="hidden bg-red-600 text-white px-4 py-2 text-sm font-bold flex items-center justify-between shadow-md">
     <div class="flex items-center space-x-2">
       <span class="animate-pulse">⚠️</span>
@@ -21,10 +19,8 @@
 
   <!-- 頂部列 -->
   <header class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
-    <h1 class="text-xl font-bold">YLCP Dashboard</h1>
-    <button id="loginBtn" onclick="handleLogin()" class="bg-white text-blue-600 px-3 py-1 rounded-lg text-sm font-semibold shadow hover:bg-slate-100 transition">
-      Microsoft 登入
-    </button>
+    <h1 class="text-xl font-bold">每日資訊 Dashboard</h1>
+    <span class="text-xs bg-blue-500 text-white px-2 py-1 rounded">Google Sheets 連線中</span>
   </header>
 
   <!-- 主內容區域（支援滑動手勢） -->
@@ -65,60 +61,72 @@
       </div>
     </div>
 
-    <!-- 當日預定活動卡片 (來自 Excel) -->
+    <!-- 當日預定活動卡片 (來自 DailyOverview Sheet) -->
     <div class="bg-white p-4 rounded-xl shadow">
       <div class="flex items-center space-x-2 text-sm font-bold text-red-500 mb-2 border-b pb-2">
         <span>📌</span>
         <span>當日預定活動</span>
       </div>
-      <ul id="eventsList" class="space-y-1.5 text-sm text-slate-600">
-        <li class="text-slate-400 italic">尚無資料（請先登入 MS 帳號）</li>
-      </ul>
+      <div id="eventsList" class="space-y-3">
+        <div class="text-slate-400 text-sm italic">載入資料中...</div>
+      </div>
     </div>
 
-    <!-- 職員值班表 (來自 Excel) -->
+    <!-- 職員值班表卡片 (來自 DutyRoster Sheet) -->
     <div class="bg-white p-4 rounded-xl shadow">
       <div class="flex items-center space-x-2 text-sm font-bold text-indigo-600 mb-2 border-b pb-2">
         <span>👥</span>
         <span>職員值班表</span>
       </div>
-      <div id="rosterList" class="space-y-2">
-        <div class="text-sm text-slate-400 italic">尚無資料（請先登入 MS 帳號）</div>
+      <div id="rosterList" class="space-y-3">
+        <div class="text-sm text-slate-400 italic">載入資料中...</div>
+      </div>
+    </div>
+
+    <!-- POS 存貨查詢卡片 (來自 pos Sheet) -->
+    <div class="bg-white p-4 rounded-xl shadow">
+      <div class="flex items-center space-x-2 text-sm font-bold text-emerald-600 mb-3 border-b pb-2">
+        <span>📦</span>
+        <span>POS 產品存貨查詢</span>
+      </div>
+      <!-- 搜尋欄 -->
+      <div class="mb-3">
+        <input 
+          type="text" 
+          id="posSearchInput" 
+          oninput="searchPOS()" 
+          placeholder="輸入 SKU、中文或英文名稱搜尋..." 
+          class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+        />
+      </div>
+      <!-- 查詢結果列表 -->
+      <div id="posResultList" class="space-y-2 max-h-60 overflow-y-auto divide-y divide-slate-100">
+        <div class="text-xs text-slate-400 italic text-center py-2">請輸入關鍵字進行搜尋</div>
       </div>
     </div>
 
   </main>
 
   <footer class="text-center p-4 text-xs text-slate-400">
-    左右滑動螢幕切換日期 | 天氣資料來自香港天文台 Open Data API
+    左右滑動螢幕切換日期 | 資料來源 香港天文台 Open Data API
   </footer>
 
   <script>
     // --- 1. 設定與變數 ---
     let currentDate = new Date();
-    let accessToken = "";
+    
+    // Google Apps Script Web App URL
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwZyGKBgZCXkuvHNEbI1_cbs6mq9eHWXOTBMUMvTRtV0fLtvAzMIZXjRJk_Ojd1pNlA/exec";
 
-    // Microsoft MSAL 設定
-    const msalConfig = {
-      auth: {
-        clientId: "YOUR_AZURE_CLIENT_ID", // 請替換為 Azure 註冊的 Client ID
-        authority: "https://login.microsoftonline.com/common",
-        redirectUri: window.location.href
-      }
-    };
-    const msalInstance = new msal.PublicClientApplication(msalConfig);
-    const EXCEL_FILE_PATH = "me/drive/root:/DutyRoster.xlsx:"; // 請依實際路徑修改
+    let cachedSheetsData = null;
 
-    // --- 輔助函數：格式化圖示編碼 (確保補零成雙位數) ---
     function formatIconCode(code) {
       if (code === undefined || code === null) return null;
       let str = String(code).trim();
       return str.length === 1 ? '0' + str : str;
     }
 
-    // --- 輔助函數：圖片載入失敗時回退機制 ---
     function handleImageError() {
-      console.warn("天文台圖示載入失敗，切換為備用 Emoji");
       document.getElementById("weatherIcon").classList.add("hidden");
       document.getElementById("weatherIconPlaceholder").classList.remove("hidden");
     }
@@ -128,27 +136,23 @@
       const todayStr = new Date().toISOString().split('T')[0];
       const targetDateStr = targetDate.toISOString().split('T')[0];
 
-      // 重置 UI 狀態
       document.getElementById("weatherDetails").classList.add("hidden");
       document.getElementById("weatherIcon").classList.add("hidden");
       document.getElementById("weatherIconPlaceholder").classList.remove("hidden");
       document.getElementById("weatherDesc").innerText = "載入天氣中...";
 
       try {
-        // 情況 A：當前日期 -> 呼叫即時天氣報告 (rhrread)
         if (targetDateStr === todayStr) {
           const res = await fetch("https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=tc");
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
           const data = await res.json();
 
-          // A-1. 氣溫防護處理 (優先取「香港天文台」站點)
           let hkoTemp = null;
           if (Array.isArray(data.temperature?.data)) {
             hkoTemp = data.temperature.data.find(i => i.place === "香港天文台") || data.temperature.data[0];
           }
           document.getElementById("temperatureDisplay").innerText = hkoTemp?.value !== undefined ? `${hkoTemp.value}°C` : "--°C";
 
-          // A-2. 濕度與 UV 指數防護處理
           const humidity = Array.isArray(data.humidity?.data) ? data.humidity.data[0]?.value : null;
           const uvObj = Array.isArray(data.uvindex?.data) ? data.uvindex.data[0] : null;
 
@@ -164,14 +168,11 @@
             document.getElementById("uvVal").innerText = "無 (夜間/未發布)";
           }
 
-          // A-3. 修正：天氣圖示 (Icon) 處理
           if (Array.isArray(data.icon) && data.icon.length > 0) {
             const iconCode = formatIconCode(data.icon[0]);
             if (iconCode) {
               const iconImg = document.getElementById("weatherIcon");
               iconImg.src = `https://www.hko.gov.hk/images/HKOWeb_Icon/pic${iconCode}.png`;
-              
-              // 當圖片順利載入時顯示圖片，隱藏預設圖示
               iconImg.onload = () => {
                 iconImg.classList.remove("hidden");
                 document.getElementById("weatherIconPlaceholder").classList.add("hidden");
@@ -179,12 +180,10 @@
             }
           }
 
-          // A-4. 降雨與更新時間
           const hasRain = Array.isArray(data.rainfall?.data) && data.rainfall.data.some(r => r.max > 0);
           document.getElementById("weatherDesc").innerText = hasRain ? "部分地區錄得降雨" : "當前即時氣溫";
           document.getElementById("weatherUpdateTime").innerText = data.updateTime ? data.updateTime.substring(11, 16) : "";
 
-          // A-5. 天氣警告訊息防護處理
           const warningBar = document.getElementById("warningBar");
           if (Array.isArray(data.warningMessage) && data.warningMessage.length > 0) {
             warningBar.classList.remove("hidden");
@@ -196,9 +195,7 @@
             warningBar.classList.add("hidden");
           }
 
-        } 
-        // 情況 B：未來日期 (9天內) -> 呼叫九天天氣預報 (fnd)
-        else {
+        } else {
           document.getElementById("warningBar").classList.add("hidden");
           const res = await fetch("https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=fnd&lang=tc");
           if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
@@ -214,12 +211,10 @@
             document.getElementById("weatherDesc").innerText = forecast.forecastWeather || "預報資料";
             document.getElementById("weatherUpdateTime").innerText = "預報";
 
-            // 修正：預報天氣圖示處理
             const iconCode = formatIconCode(forecast.ForecastIcon);
             if (iconCode) {
               const iconImg = document.getElementById("weatherIcon");
               iconImg.src = `https://www.hko.gov.hk/images/HKOWeb_Icon/pic${iconCode}.png`;
-              
               iconImg.onload = () => {
                 iconImg.classList.remove("hidden");
                 document.getElementById("weatherIconPlaceholder").classList.add("hidden");
@@ -232,68 +227,186 @@
           }
         }
       } catch (err) {
-        console.error("天文台 API 解析或網路錯誤:", err);
+        console.error("天文台 API 解析錯誤:", err);
         document.getElementById("weatherDesc").innerText = "天氣載入失敗";
       }
     }
 
-    // --- 3. Microsoft Graph API 讀取 Excel ---
-    async function handleLogin() {
+    // --- 3. Google Sheets 資料讀取與解析 ---
+    async function fetchGoogleSheetsData() {
+      if (cachedSheetsData) return cachedSheetsData;
       try {
-        const loginResponse = await msalInstance.loginPopup({ scopes: ["Files.Read.All"] });
-        accessToken = loginResponse.accessToken;
-        document.getElementById("loginBtn").innerText = "已登入";
-        loadDataForDate(currentDate);
-      } catch (err) {
-        console.error("登入失敗:", err);
-      }
-    }
-
-    async function fetchExcelTable(sheetName) {
-      if (!accessToken) return null;
-      const url = `https://graph.microsoft.com/v1.0/${EXCEL_FILE_PATH}/workbook/worksheets('${sheetName}')/usedRange`;
-      const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      const data = await response.json();
-      return data.values;
-    }
-
-    async function loadExcelRosterAndEvents(dateStr) {
-      try {
-        const overviewData = await fetchExcelTable("DailyOverview");
-        const rosterData = await fetchExcelTable("DutyRoster");
-
-        // 特殊活動
-        if (overviewData && overviewData.length > 1) {
-          const match = overviewData.find(row => row[0] === dateStr);
-          const events = match && match[2] ? match[2].split(',') : [];
-          document.getElementById("eventsList").innerHTML = events.length > 0 
-            ? events.map(e => `<li>• ${e.trim()}</li>`).join('') 
-            : '<li class="text-slate-400">今日無特別活動</li>';
-        }
-
-        // 值班表
-        if (rosterData && rosterData.length > 1) {
-          const matchedRoster = rosterData.filter(row => row[0] === dateStr);
-          if (matchedRoster.length > 0) {
-            document.getElementById("rosterList").innerHTML = matchedRoster.map(row => `
-              <div class="flex justify-between items-center p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                <div>
-                  <div class="font-bold text-slate-800 text-sm">${row[1]}</div>
-                  <div class="text-xs text-slate-500">${row[3] || '一般值班'}</div>
-                </div>
-                <span class="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">${row[2]}</span>
-              </div>
-            `).join('');
-          } else {
-            document.getElementById("rosterList").innerHTML = '<div class="text-sm text-slate-400 italic">本日無排班記錄</div>';
-          }
-        }
+        const response = await fetch(GOOGLE_SCRIPT_URL);
+        const data = await response.json();
+        cachedSheetsData = data;
+        return data;
       } catch (e) {
-        console.error("Excel 讀取錯誤:", e);
+        console.error("Google Sheets API 讀取失敗:", e);
+        return null;
       }
     }
 
-    // --- 4. 核心流程與手勢切換 ---
+    function formatDateString(rawDate) {
+      if (!rawDate) return "";
+      let d = new Date(rawDate);
+      if (isNaN(d.getTime())) return String(rawDate).trim();
+      return d.toISOString().split('T')[0];
+    }
+
+    function formatTimeString(rawTime) {
+      if (!rawTime) return "--:--";
+      if (typeof rawTime === 'string') return rawTime.substring(0, 5);
+      let d = new Date(rawTime);
+      if (!isNaN(d.getTime())) {
+        let hours = String(d.getHours()).padStart(2, '0');
+        let mins = String(d.getMinutes()).padStart(2, '0');
+        return `${hours}:${mins}`;
+      }
+      return String(rawTime);
+    }
+
+    async function renderExcelData(dateStr) {
+      const data = await fetchGoogleSheetsData();
+      
+      if (!data) {
+        document.getElementById("eventsList").innerHTML = '<div class="text-red-400 text-sm">Google Sheets 資料讀取失敗</div>';
+        document.getElementById("rosterList").innerHTML = '<div class="text-sm text-red-400">Google Sheets 資料讀取失敗</div>';
+        return;
+      }
+
+      // --- A. 渲染 DailyOverview 特別活動 ---
+      const overviewRows = (data.overview || []).slice(1);
+      const matchedEvents = overviewRows.filter(row => formatDateString(row[0]) === dateStr);
+
+      if (matchedEvents.length > 0) {
+        let htmlHtml = "";
+        matchedEvents.forEach(row => {
+          const startTime = formatTimeString(row[1]);
+          const endTime = formatTimeString(row[2]);
+          const eventName = row[3] || "未命名活動";
+          const eventType = row[4] ? ` (${row[4]})` : "";
+          const pic = row[5] || "無";
+
+          htmlHtml += `
+            <div class="p-3 bg-red-50/60 border border-red-100 rounded-lg space-y-1">
+              <div class="flex justify-between items-center text-xs font-semibold text-red-700">
+                <span>⏰ ${startTime} - ${endTime}</span>
+                <span class="bg-red-100 text-red-800 px-2 py-0.5 rounded-full">👤 PIC: ${pic}</span>
+              </div>
+              <div class="text-sm font-bold text-slate-800">
+                📌 ${eventName}<span class="text-xs font-normal text-slate-500">${eventType}</span>
+              </div>
+            </div>
+          `;
+        });
+        document.getElementById("eventsList").innerHTML = htmlHtml;
+      } else {
+        document.getElementById("eventsList").innerHTML = '<div class="text-slate-400 text-sm italic">今日無特別活動</div>';
+      }
+
+      // --- B. 渲染 DutyRoster 職員值班表 ---
+      const rosterRows = (data.roster || []).slice(1);
+      const headers = (data.roster || [])[0] || [];
+      const matchedRoster = rosterRows.find(row => formatDateString(row[0]) === dateStr);
+
+      if (matchedRoster) {
+        const renderStaffGroup = (startIndex, endIndex) => {
+          let cols = [];
+          for (let i = startIndex; i <= endIndex; i++) {
+            const staffName = headers[i] || `Staff${String(i).padStart(2, '0')}`;
+            const shift = matchedRoster[i] || "休";
+            cols.push(`
+              <div class="bg-slate-50 p-2 rounded border border-slate-200 text-center">
+                <div class="text-xs text-slate-500 truncate">${staffName}</div>
+                <div class="text-sm font-bold text-indigo-700 truncate">${shift}</div>
+              </div>
+            `);
+          }
+          return `<div class="grid grid-cols-4 gap-2">${cols.join('')}</div>`;
+        };
+
+        const row1 = renderStaffGroup(1, 4);
+        const row2 = renderStaffGroup(5, 8);
+        const row3 = `
+          <div class="grid grid-cols-2 gap-2 max-w-[50%]">
+            ${matchedRoster[9] !== undefined ? `
+              <div class="bg-slate-50 p-2 rounded border border-slate-200 text-center">
+                <div class="text-xs text-slate-500 truncate">${headers[9] || 'Staff09'}</div>
+                <div class="text-sm font-bold text-indigo-700 truncate">${matchedRoster[9] || '休'}</div>
+              </div>` : ''}
+            ${matchedRoster[10] !== undefined ? `
+              <div class="bg-slate-50 p-2 rounded border border-slate-200 text-center">
+                <div class="text-xs text-slate-500 truncate">${headers[10] || 'Staff10'}</div>
+                <div class="text-sm font-bold text-indigo-700 truncate">${matchedRoster[10] || '休'}</div>
+              </div>` : ''}
+          </div>
+        `;
+
+        document.getElementById("rosterList").innerHTML = `
+          <div class="space-y-2">
+            ${row1}
+            ${row2}
+            ${row3}
+          </div>
+        `;
+      } else {
+        document.getElementById("rosterList").innerHTML = '<div class="text-sm text-slate-400 italic">本日無排班記錄</div>';
+      }
+    }
+
+    // --- 4. POS 存貨即時搜尋邏輯 ---
+    async function searchPOS() {
+      const keyword = document.getElementById("posSearchInput").value.trim().toLowerCase();
+      const resultContainer = document.getElementById("posResultList");
+
+      if (!keyword) {
+        resultContainer.innerHTML = '<div class="text-xs text-slate-400 italic text-center py-2">請輸入關鍵字進行搜尋</div>';
+        return;
+      }
+
+      const data = await fetchGoogleSheetsData();
+      if (!data || !data.pos) {
+        resultContainer.innerHTML = '<div class="text-xs text-red-400 text-center py-2">POS 資料載入失敗</div>';
+        return;
+      }
+
+      const posRows = data.pos.slice(1);
+      
+      const filtered = posRows.filter(row => {
+        const sku = String(row[0] || "").toLowerCase();
+        const enName = String(row[1] || "").toLowerCase();
+        const cnName = String(row[2] || "").toLowerCase();
+        return sku.includes(keyword) || enName.includes(keyword) || cnName.includes(keyword);
+      });
+
+      if (filtered.length === 0) {
+        resultContainer.innerHTML = '<div class="text-xs text-slate-400 text-center py-2">找不到匹配的產品</div>';
+        return;
+      }
+
+      resultContainer.innerHTML = filtered.map(row => {
+        const enName = row[1] || "";
+        const cnName = row[2] || "無中文名稱";
+        const selling = row[4] !== undefined ? `$${row[4]}` : "N/A";
+        const stock = row[5] !== undefined ? row[5] : 0;
+        const stockClass = stock <= 5 ? "text-red-600 font-bold" : "text-emerald-600 font-bold";
+
+        return `
+          <div class="py-2 flex justify-between items-center text-xs">
+            <div class="pr-2">
+              <div class="font-bold text-slate-800">${cnName}</div>
+              <div class="text-slate-400 text-[11px]">${enName}</div>
+            </div>
+            <div class="text-right flex-shrink-0">
+              <div class="text-slate-700 font-semibold">售價: ${selling}</div>
+              <div class="text-[11px]">存貨: <span class="${stockClass}">${stock}</span></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // --- 5. 核心流程與手勢切換 ---
     function loadDataForDate(date) {
       const dateStr = date.toISOString().split('T')[0];
       document.getElementById("currentDateDisplay").innerText = dateStr;
@@ -301,10 +414,8 @@
       // 1. 載入天文台天氣
       fetchHKOWeather(date);
 
-      // 2. 載入 Excel 活動與值班表
-      if (accessToken) {
-        loadExcelRosterAndEvents(dateStr);
-      }
+      // 2. 載入 Google Sheets 資料 (活動 & 值班)
+      renderExcelData(dateStr);
     }
 
     function changeDate(days) {
