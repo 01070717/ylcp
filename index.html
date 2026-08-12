@@ -72,6 +72,17 @@
       </div>
     </div>
 
+    <!-- 今早預定外借1103 卡片 (僅當 1103 分頁出現選擇日期時動態彈出) -->
+    <div id="borrow1103Card" class="hidden bg-amber-50 border-2 border-amber-400 p-4 rounded-xl shadow-md transition-all duration-300">
+      <div class="flex items-center space-x-2 text-sm font-bold text-amber-800 mb-1 border-b border-amber-200 pb-2">
+        <span class="text-lg">📢</span>
+        <span>今早預定外借 1103</span>
+      </div>
+      <div id="borrow1103Details" class="text-xs text-amber-900 mt-2 space-y-1">
+        <!-- 動態寫入內容 -->
+      </div>
+    </div>
+
     <!-- 當日預定活動卡片 (來自 DailyOverview Sheet) -->
     <div class="bg-white p-4 rounded-xl shadow">
       <div class="flex items-center space-x-2 text-sm font-bold text-red-500 mb-2 border-b pb-2">
@@ -144,7 +155,7 @@
 
     let cachedSheetsData = null;
 
-    // 格式化 Date 物件為本地時區 YYYY-MM-DD，避免 toISOString() 時區扣減 8 小時問題
+    // 格式化 Date 物件為本地時區 YYYY-MM-DD
     function formatDateLocal(d) {
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -163,7 +174,7 @@
       document.getElementById("weatherIconPlaceholder").classList.remove("hidden");
     }
 
-    // 依據值班狀態回傳對應卡片顏色樣式 (AL/CL黃色, SL綠色, OFF/休/PH紅色)
+    // 依據值班狀態回傳對應卡片顏色樣式
     function getShiftCardStyle(shift) {
       const cleanShift = String(shift || "").trim().toUpperCase();
 
@@ -186,7 +197,6 @@
           shift: 'text-rose-600'
         };
       } else {
-        // 一般上班班次預設樣式
         return {
           card: 'bg-slate-50 border-slate-200',
           name: 'text-slate-500',
@@ -349,7 +359,33 @@
         return;
       }
 
-      // --- A. 渲染 DailyOverview 特別活動 ---
+      // --- A. 判斷與渲染 "今早預定外借1103" 卡片 (來自 1103 Sheet) ---
+      const sheet1103Rows = (data["1103"] || data["sheet1103"] || data["1103分頁"] || []).slice(1);
+      const matched1103 = sheet1103Rows.filter(row => formatDateString(row[0]) === dateStr);
+
+      const borrowCard = document.getElementById("borrow1103Card");
+      const borrowDetails = document.getElementById("borrow1103Details");
+
+      if (matched1103.length > 0) {
+        borrowCard.classList.remove("hidden");
+        
+        let detailsHtml = "";
+        matched1103.forEach(row => {
+          // 如果 1103 分頁還有其他欄位備註 (例如 B 欄、C 欄等)，將其顯示出來
+          const extraInfo = row.slice(1).filter(cell => cell !== undefined && String(cell).trim() !== "").join(" - ");
+          if (extraInfo) {
+            detailsHtml += `<div class="p-2 bg-amber-100/80 rounded border border-amber-200 font-semibold">${extraInfo}</div>`;
+          } else {
+            detailsHtml += `<div class="p-2 bg-amber-100/80 rounded border border-amber-200 font-semibold text-amber-900">⚠️ 今日有預定外借 1103 記錄</div>`;
+          }
+        });
+        borrowDetails.innerHTML = detailsHtml;
+      } else {
+        borrowCard.classList.add("hidden");
+        borrowDetails.innerHTML = "";
+      }
+
+      // --- B. 渲染 DailyOverview 特別活動 ---
       const overviewRows = (data.overview || []).slice(1);
       const matchedEvents = overviewRows.filter(row => formatDateString(row[0]) === dateStr);
 
@@ -379,7 +415,7 @@
         document.getElementById("eventsList").innerHTML = '<div class="text-slate-400 text-sm italic">今日無特別活動</div>';
       }
 
-      // --- B. 渲染 DutyRoster 職員值班表 ---
+      // --- C. 渲染 DutyRoster 職員值班表 ---
       const rosterRows = (data.roster || []).slice(1);
       const headers = (data.roster || [])[0] || [];
       const matchedRoster = rosterRows.find(row => formatDateString(row[0]) === dateStr);
@@ -562,7 +598,7 @@
       // 1. 載入天文台天氣
       fetchHKOWeather(date);
 
-      // 2. 載入 Google Sheets 資料 (活動 & 值班)
+      // 2. 載入 Google Sheets 資料 (含外借1103、活動 & 值班)
       renderExcelData(dateStr);
     }
 
