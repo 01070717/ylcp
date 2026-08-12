@@ -120,6 +120,14 @@
 
     let cachedSheetsData = null;
 
+    // 格式化 Date 物件為本地時區 YYYY-MM-DD，避免 toISOString() 時區扣減 8 小時問題
+    function formatDateLocal(d) {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
     function formatIconCode(code) {
       if (code === undefined || code === null) return null;
       let str = String(code).trim();
@@ -131,10 +139,42 @@
       document.getElementById("weatherIconPlaceholder").classList.remove("hidden");
     }
 
+    // 依據值班狀態回傳對應卡片顏色樣式 (AL/CL黃色, SL綠色, OFF/休/PH紅色)
+    function getShiftCardStyle(shift) {
+      const cleanShift = String(shift || "").trim().toUpperCase();
+
+      if (cleanShift === 'AL' || cleanShift === 'CL') {
+        return {
+          card: 'bg-amber-50 border-amber-200',
+          name: 'text-amber-700',
+          shift: 'text-amber-600'
+        };
+      } else if (cleanShift === 'SL') {
+        return {
+          card: 'bg-emerald-50 border-emerald-200',
+          name: 'text-emerald-700',
+          shift: 'text-emerald-600'
+        };
+      } else if (cleanShift === 'OFF' || cleanShift === '休' || cleanShift === 'PH') {
+        return {
+          card: 'bg-rose-50 border-rose-200',
+          name: 'text-rose-700',
+          shift: 'text-rose-600'
+        };
+      } else {
+        // 一般上班班次預設樣式
+        return {
+          card: 'bg-slate-50 border-slate-200',
+          name: 'text-slate-500',
+          shift: 'text-indigo-700'
+        };
+      }
+    }
+
     // --- 2. 天文台 API 介接邏輯 ---
     async function fetchHKOWeather(targetDate) {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const targetDateStr = targetDate.toISOString().split('T')[0];
+      const todayStr = formatDateLocal(new Date());
+      const targetDateStr = formatDateLocal(targetDate);
 
       document.getElementById("weatherDetails").classList.add("hidden");
       document.getElementById("weatherIcon").classList.add("hidden");
@@ -248,9 +288,20 @@
 
     function formatDateString(rawDate) {
       if (!rawDate) return "";
-      let d = new Date(rawDate);
-      if (isNaN(d.getTime())) return String(rawDate).trim();
-      return d.toISOString().split('T')[0];
+      let str = String(rawDate).trim();
+      
+      if (str.includes("T")) {
+        let d = new Date(str);
+        if (!isNaN(d.getTime())) return formatDateLocal(d);
+      }
+      
+      if (str.length >= 10 && str.charAt(4) === '-' && str.charAt(7) === '-') {
+        return str.substring(0, 10);
+      }
+
+      let d = new Date(str);
+      if (isNaN(d.getTime())) return str;
+      return formatDateLocal(d);
     }
 
     function formatTimeString(rawTime) {
@@ -310,17 +361,23 @@
       const matchedRoster = rosterRows.find(row => formatDateString(row[0]) === dateStr);
 
       if (matchedRoster) {
+        const createStaffCard = (index) => {
+          const staffName = headers[index] || `Staff${String(index).padStart(2, '0')}`;
+          const shift = matchedRoster[index] || "休";
+          const style = getShiftCardStyle(shift);
+
+          return `
+            <div class="${style.card} p-2 rounded border text-center transition-colors">
+              <div class="text-xs ${style.name} truncate">${staffName}</div>
+              <div class="text-sm font-bold ${style.shift} truncate">${shift}</div>
+            </div>
+          `;
+        };
+
         const renderStaffGroup = (startIndex, endIndex) => {
           let cols = [];
           for (let i = startIndex; i <= endIndex; i++) {
-            const staffName = headers[i] || `Staff${String(i).padStart(2, '0')}`;
-            const shift = matchedRoster[i] || "休";
-            cols.push(`
-              <div class="bg-slate-50 p-2 rounded border border-slate-200 text-center">
-                <div class="text-xs text-slate-500 truncate">${staffName}</div>
-                <div class="text-sm font-bold text-indigo-700 truncate">${shift}</div>
-              </div>
-            `);
+            cols.push(createStaffCard(i));
           }
           return `<div class="grid grid-cols-4 gap-2">${cols.join('')}</div>`;
         };
@@ -329,16 +386,8 @@
         const row2 = renderStaffGroup(5, 8);
         const row3 = `
           <div class="grid grid-cols-2 gap-2 max-w-[50%]">
-            ${matchedRoster[9] !== undefined ? `
-              <div class="bg-slate-50 p-2 rounded border border-slate-200 text-center">
-                <div class="text-xs text-slate-500 truncate">${headers[9] || 'Staff09'}</div>
-                <div class="text-sm font-bold text-indigo-700 truncate">${matchedRoster[9] || '休'}</div>
-              </div>` : ''}
-            ${matchedRoster[10] !== undefined ? `
-              <div class="bg-slate-50 p-2 rounded border border-slate-200 text-center">
-                <div class="text-xs text-slate-500 truncate">${headers[10] || 'Staff10'}</div>
-                <div class="text-sm font-bold text-indigo-700 truncate">${matchedRoster[10] || '休'}</div>
-              </div>` : ''}
+            ${matchedRoster[9] !== undefined ? createStaffCard(9) : ''}
+            ${matchedRoster[10] !== undefined ? createStaffCard(10) : ''}
           </div>
         `;
 
@@ -408,7 +457,7 @@
 
     // --- 5. 核心流程與手勢切換 ---
     function loadDataForDate(date) {
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = formatDateLocal(date);
       document.getElementById("currentDateDisplay").innerText = dateStr;
 
       // 1. 載入天文台天氣
