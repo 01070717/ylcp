@@ -155,12 +155,11 @@
     <div class="bg-white p-4 rounded-xl shadow flex flex-wrap justify-between items-center gap-2">
       <div>
         <h2 class="text-lg font-bold text-slate-800">📅 活動與指定職員值班月曆</h2>
-        <p class="text-xs text-slate-500">（包含 Robin, Lawrence, Anson, Grace, Stanley 值班狀況）</p>
       </div>
       <div class="flex items-center space-x-2">
         <!-- 模式切換按鈕 -->
         <button onclick="switchCalendarDisplayMode()" id="modeToggleBtn" class="px-3 py-1.5 text-xs font-bold bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 rounded-lg transition-colors">
-          📋 切換為傳統月曆模式
+          📋 月曆模式
         </button>
         <button onclick="toggleCalendarView()" class="px-3 py-1.5 text-xs font-medium bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition-colors">
           返回主畫面
@@ -230,6 +229,13 @@
       document.getElementById("weatherIconPlaceholder").classList.remove("hidden");
     }
 
+    // 取得職員名字的首字母大寫
+    function getStaffInitial(name) {
+      if (!name) return "";
+      const trimmed = String(name).trim();
+      return trimmed.charAt(0).toUpperCase();
+    }
+
     // 依據值班狀態回傳對應卡片顏色樣式 (AL/CL黃色, SL綠色, OFF/休/PH/O紅色)
     function getShiftCardStyle(shift) {
       const cleanShift = String(shift || "").trim().toUpperCase();
@@ -289,9 +295,9 @@
       const modeBtn = document.getElementById("modeToggleBtn");
       
       if (calendarDisplayMode === 'grid') {
-        modeBtn.innerText = "📄 切換為 3個月列表模式";
+        modeBtn.innerText = "📄 列表模式";
       } else {
-        modeBtn.innerText = "📋 切換為傳統月曆模式";
+        modeBtn.innerText = "📋 月曆模式";
       }
       renderCalendarContent();
     }
@@ -497,20 +503,21 @@
         document.getElementById("eventsList").innerHTML = '<div class="text-slate-400 text-sm italic">今日無特別活動</div>';
       }
 
-      // --- B. 渲染 DutyRoster 職員值班表 (一行 5 個，OFF/O自動轉換為休) ---
+      // --- B. 渲染 DutyRoster 職員值班表 (僅保留名字首字母) ---
       const rosterRows = (data.roster || []).slice(1);
       const headers = (data.roster || [])[0] || [];
       const matchedRoster = rosterRows.find(row => formatDateString(row[0]) === dateStr);
 
       if (matchedRoster) {
         const createStaffCard = (index) => {
-          const staffName = headers[index] || `Staff${String(index).padStart(2, '0')}`;
+          const fullName = headers[index] || `Staff${String(index).padStart(2, '0')}`;
+          const staffInitial = getStaffInitial(fullName);
           const rawShift = matchedRoster[index] || "休";
           const style = getShiftCardStyle(rawShift);
 
           return `
             <div class="${style.card} p-2 rounded border text-center transition-colors">
-              <div class="text-xs ${style.name} truncate">${staffName}</div>
+              <div class="text-xs ${style.name} truncate">${staffInitial}</div>
               <div class="text-sm font-bold ${style.shift} truncate">${style.displayText}</div>
             </div>
           `;
@@ -542,7 +549,7 @@
       }
     }
 
-    // --- 3.3A 渲染傳統單月網格月曆（已調整順序：先顯示 Roster，再顯示活動）---
+    // --- 3.3A 渲染傳統單月網格月曆 (職員名字只留首字) ---
     async function renderGridCalendar() {
       const year = gridViewDate.getFullYear();
       const month = gridViewDate.getMonth();
@@ -563,18 +570,15 @@
 
       let cellsHtml = "";
 
-      // 填補月初的空白方格
       for (let i = 0; i < startingDay; i++) {
         cellsHtml += `<div class="min-h-[90px] bg-slate-50/50 rounded-lg p-1 border border-transparent"></div>`;
       }
 
-      // 填入當月每天的日期方格
       for (let day = 1; day <= totalDays; day++) {
         const loopDate = new Date(year, month, day);
         const dateStr = formatDateLocal(loopDate);
         const isToday = formatDateLocal(new Date()) === dateStr;
 
-        // 1. 指定 5 位職員值班 (Roster)
         const matchedRoster = rosterRows.find(row => formatDateString(row[0]) === dateStr);
         let staffBadges = "";
 
@@ -582,15 +586,15 @@
           const staffIndex = headers.findIndex(h => String(h || "").trim().toLowerCase() === staffName.toLowerCase());
           const shift = (matchedRoster && staffIndex !== -1 && matchedRoster[staffIndex]) ? matchedRoster[staffIndex] : "休";
           const style = getShiftCardStyle(shift);
+          const initial = getStaffInitial(staffName);
 
           staffBadges += `
             <span class="inline-block px-1 py-0.2 text-[9px] rounded ${style.card} ${style.shift} font-semibold mr-0.5 mb-0.5">
-              ${staffName.substring(0, 2)}:${style.displayText}
+              ${initial}:${style.displayText}
             </span>
           `;
         });
 
-        // 2. 當日活動
         const matchedEvents = overviewRows.filter(row => formatDateString(row[0]) === dateStr);
         let eventBadge = "";
         if (matchedEvents.length > 0) {
@@ -603,12 +607,10 @@
               <div class="flex justify-between items-center mb-1">
                 <span class="font-bold ${isToday ? 'bg-blue-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-[11px]' : 'text-slate-700'}">${day}</span>
               </div>
-              <!-- 先顯示 Roster -->
               <div class="flex flex-wrap mb-1">
                 ${staffBadges}
               </div>
             </div>
-            <!-- 再顯示當日活動 -->
             <div>
               ${eventBadge}
             </div>
@@ -619,7 +621,7 @@
       gridDays.innerHTML = cellsHtml;
     }
 
-    // --- 3.3B 渲染 3 個月活動與指定職員列表月曆（已調整順序：先顯示 Roster，再顯示活動）---
+    // --- 3.3B 渲染 3 個月列表月曆 (職員名字只留首字) ---
     async function renderThreeMonthCalendar() {
       const container = document.getElementById("threeMonthCalendarContainer");
       container.innerHTML = '<div class="bg-white p-6 rounded-xl shadow text-center text-slate-400 italic">正在載入資料中...</div>';
@@ -657,7 +659,6 @@
           let loopDate = new Date(targetYear, targetMonth, d);
           let dateStr = formatDateLocal(loopDate);
           
-          // 1. 查詢該天指定職員排班 (Roster)
           let matchedRoster = rosterRows.find(row => formatDateString(row[0]) === dateStr);
           let staffRosterHtml = "";
 
@@ -665,16 +666,16 @@
             const staffIndex = headers.findIndex(h => String(h || "").trim().toLowerCase() === staffName.toLowerCase());
             let shift = (matchedRoster && staffIndex !== -1 && matchedRoster[staffIndex]) ? matchedRoster[staffIndex] : "休";
             let style = getShiftCardStyle(shift);
+            let initial = getStaffInitial(staffName);
             
             staffRosterHtml += `
               <div class="inline-block px-2 py-0.5 rounded border ${style.card} text-[11px] mr-1 mb-1">
-                <span class="font-bold ${style.name}">${staffName}:</span> 
+                <span class="font-bold ${style.name}">${initial}:</span> 
                 <span class="${style.shift} font-semibold">${style.displayText}</span>
               </div>
             `;
           });
 
-          // 2. 查詢該天活動
           let dayEvents = overviewRows.filter(row => formatDateString(row[0]) === dateStr);
           let eventsText = "";
           if (dayEvents.length > 0) {
@@ -688,12 +689,10 @@
               <div class="flex justify-between items-center text-xs font-bold text-slate-700 border-b border-slate-200 pb-1">
                 <span>📅 ${dateStr} (${['日','一','二','三','四','五','六'][loopDate.getDay()]} )</span>
               </div>
-              <!-- 先顯示職員 Roster -->
               <div class="space-y-1">
-                <div class="text-xs font-semibold text-slate-600">👤 指定職員 Roster (Robin, Lawrence, Anson, Grace, Stanley)：</div>
+                <div class="text-xs font-semibold text-slate-600">👤 指定職員 Roster (R, L, A, G, S)：</div>
                 <div>${staffRosterHtml}</div>
               </div>
-              <!-- 再顯示當日預定活動 -->
               <div class="space-y-1 pt-1 border-t border-slate-200/60">
                 <div class="text-xs font-semibold text-slate-600">📌 當日預定活動：</div>
                 <div>${eventsText}</div>
@@ -758,10 +757,11 @@
           const staffIndex = headers.findIndex(h => String(h || "").trim().toLowerCase() === staff.toLowerCase());
           const rawShift = (staffIndex !== -1 && matchedRoster[staffIndex]) ? matchedRoster[staffIndex] : "無紀錄";
           const style = getShiftCardStyle(rawShift);
+          const initial = getStaffInitial(staff);
 
           return `
             <div class="${style.card} p-1.5 rounded border text-center">
-              <div class="font-bold text-slate-700">${staff}</div>
+              <div class="font-bold text-slate-700">${initial}</div>
               <div class="${style.shift} font-semibold">${style.displayText}</div>
             </div>
           `;
@@ -879,3 +879,4 @@
   </script>
 </body>
 </html>
+
