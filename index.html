@@ -158,20 +158,33 @@
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     }
 
-    function formatDateString(rawDate) {
-  if (!rawDate) return "";
-  const str = String(rawDate).trim().replace(/\//g, "-");
+function formatDateString(rawDate) {
+  if (rawDate === undefined || rawDate === null || rawDate === "") return "";
 
-  // 若已是 YYYY-MM-DD 開頭，直接取前 10 碼，避免時區位移
-  const ymdMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
+    return formatDateLocal(rawDate);
+  }
+
+  const str = String(rawDate).trim();
+
+  // 1. YYYY-MM-DD 或 YYYY/MM/DD（可帶時間）
+  const ymdMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
   if (ymdMatch) {
     const [, y, m, d] = ymdMatch;
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
   }
 
-  const d = new Date(str);
-  return Number.isNaN(d.getTime()) ? str : formatDateLocal(d);
+  // 2. DD/MM/YYYY 或 DD-MM-YYYY（香港常見日期格式）
+  const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+
+  const parsed = new Date(str);
+  return Number.isNaN(parsed.getTime()) ? str : formatDateLocal(parsed);
 }
+
 
 
     function formatTimeString(rawTime) {
