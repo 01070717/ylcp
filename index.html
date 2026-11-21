@@ -11,7 +11,7 @@
   <!-- 天氣警告列 -->
   <div id="warningBar" class="hidden bg-red-600 text-white px-4 py-2 text-sm font-bold flex items-center space-x-2 shadow-md">
     <span class="animate-pulse">⚠️</span>
-    <span id="warningText">警告訊息載入中...</span>
+    <span id="warningText"></span>
   </div>
 
   <!-- 頂部列 -->
@@ -121,7 +121,7 @@
     <div class="bg-white p-4 rounded-xl shadow flex flex-wrap justify-between items-center gap-2">
       <div>
         <h2 class="text-lg font-bold text-slate-800">📅 活動與職員值班月曆</h2>
-        <p class="text-xs text-slate-500">指定職員：R, L, A, G, S（先顯示 Roster，再顯示當日活動）</p>
+        <p class="text-xs text-slate-500">指定職員：R, L, A, G, S</p>
       </div>
       <div class="flex items-center space-x-2">
         <button onclick="switchCalendarDisplayMode()" id="modeToggleBtn" class="px-3 py-1.5 text-xs font-bold bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 rounded-lg">
@@ -166,33 +166,25 @@
     let cachedSheetsData = null;
     let isCalendarViewActive = false;
     let calendarDisplayMode = "list";
+    let renderSeq = 0;
 
+    // --- 格式化工具 ---
     function formatDateLocal(d) {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     }
 
     function formatDateString(rawDate) {
       if (rawDate === undefined || rawDate === null || rawDate === "") return "";
-
       if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
         return formatDateLocal(rawDate);
       }
 
       const str = String(rawDate).trim();
+      const ymd = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+      if (ymd) return `${ymd[1]}-${ymd[2].padStart(2, "0")}-${ymd[3].padStart(2, "0")}`;
 
-      // 1. YYYY-MM-DD 或 YYYY/MM/DD（可帶時間）
-      const ymdMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-      if (ymdMatch) {
-        const [, y, m, d] = ymdMatch;
-        return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-      }
-
-      // 2. DD/MM/YYYY 或 DD-MM-YYYY
-      const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-      if (dmyMatch) {
-        const [, d, m, y] = dmyMatch;
-        return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
-      }
+      const dmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+      if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
 
       const parsed = new Date(str);
       return Number.isNaN(parsed.getTime()) ? str : formatDateLocal(parsed);
@@ -202,19 +194,9 @@
       if (!rawTime) return "--:--";
       if (typeof rawTime === "string") return rawTime.slice(0, 5);
       const d = new Date(rawTime);
-      if (Number.isNaN(d.getTime())) return String(rawTime);
-      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-    }
-
-    function formatIconCode(code) {
-      if (code === undefined || code === null) return null;
-      const str = String(code).trim();
-      return str.length === 1 ? "0" + str : str;
-    }
-
-    function handleImageError() {
-      document.getElementById("weatherIcon").classList.add("hidden");
-      document.getElementById("weatherIconPlaceholder").classList.remove("hidden");
+      return Number.isNaN(d.getTime())
+        ? String(rawTime)
+        : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     }
 
     function getStaffInitial(name) {
@@ -239,13 +221,13 @@
 
     function buildRosterGridHtml(headers, row, type = "ylcp") {
       const cards = [];
-      for (let i = 1; i < Math.max(headers.length, row.length); i++) {
+      const len = Math.max(headers.length, row.length);
+      for (let i = 1; i < len; i++) {
         if (!headers[i] && (row[i] === undefined || row[i] === "")) continue;
-        const initial = getStaffInitial(headers[i] || `S${i}`);
         const style = getShiftCardStyle(row[i] || "休", type);
         cards.push(`
           <div class="${style.card} p-2 rounded border text-center">
-            <div class="text-xs ${style.name} truncate">${initial}</div>
+            <div class="text-xs ${style.name} truncate">${getStaffInitial(headers[i] || `S${i}`)}</div>
             <div class="text-sm font-bold ${style.shift} truncate">${style.displayText}</div>
           </div>
         `);
@@ -259,18 +241,13 @@
         const shift = (matchedRow && idx !== -1 && matchedRow[idx]) ? matchedRow[idx] : "休";
         const style = getShiftCardStyle(shift, "ylcp");
         const initial = getStaffInitial(staff);
-        if (compact) {
-          return `<span class="inline-block px-1 py-0.5 text-[9px] rounded border ${style.card} ${style.shift} font-semibold mr-0.5 mb-0.5">${initial}:${style.displayText}</span>`;
-        }
-        return `
-          <div class="${style.card} p-1.5 rounded border text-center">
-            <div class="font-bold text-slate-700">${initial}</div>
-            <div class="${style.shift} font-semibold">${style.displayText}</div>
-          </div>
-        `;
+        return compact
+          ? `<span class="inline-block px-1 py-0.5 text-[9px] rounded border ${style.card} ${style.shift} font-semibold mr-0.5 mb-0.5">${initial}:${style.displayText}</span>`
+          : `<div class="${style.card} p-1.5 rounded border text-center"><div class="font-bold text-slate-700">${initial}</div><div class="${style.shift} font-semibold">${style.displayText}</div></div>`;
       }).join("");
     }
 
+    // --- 視圖切換 ---
     function toggleCalendarView() {
       isCalendarViewActive = !isCalendarViewActive;
       document.getElementById("mainDashboardView").classList.toggle("hidden", isCalendarViewActive);
@@ -290,8 +267,7 @@
       const isGrid = calendarDisplayMode === "grid";
       document.getElementById("gridCalendarContainer").classList.toggle("hidden", !isGrid);
       document.getElementById("threeMonthCalendarContainer").classList.toggle("hidden", isGrid);
-      if (isGrid) renderGridCalendar();
-      else renderThreeMonthCalendar();
+      isGrid ? renderGridCalendar() : renderThreeMonthCalendar();
     }
 
     function changeGridMonth(offset) {
@@ -299,9 +275,16 @@
       renderGridCalendar();
     }
 
+    // --- 天文台天氣 ---
+    function handleImageError() {
+      document.getElementById("weatherIcon").classList.add("hidden");
+      document.getElementById("weatherIconPlaceholder").classList.remove("hidden");
+    }
+
     function setWeatherIcon(code) {
-      const iconCode = formatIconCode(code);
-      if (!iconCode) return;
+      if (code === undefined || code === null) return;
+      const str = String(code).trim();
+      const iconCode = str.length === 1 ? "0" + str : str;
       const img = document.getElementById("weatherIcon");
       img.src = `https://www.hko.gov.hk/images/HKOWeb_Icon/pic${iconCode}.png`;
       img.onload = () => {
@@ -340,9 +323,8 @@
           document.getElementById("weatherDesc").textContent = hasRain ? "部分地區錄得降雨" : "當前即時氣溫";
           document.getElementById("weatherUpdateTime").textContent = data.updateTime ? data.updateTime.slice(11, 16) : "";
 
-          const warningBar = document.getElementById("warningBar");
           const warnMsg = Array.isArray(data.warningMessage) ? data.warningMessage.join(" | ") : (data.warningMessage || "");
-          warningBar.classList.toggle("hidden", !warnMsg.trim());
+          document.getElementById("warningBar").classList.toggle("hidden", !warnMsg.trim());
           document.getElementById("warningText").textContent = warnMsg;
         } else {
           document.getElementById("warningBar").classList.add("hidden");
@@ -367,12 +349,12 @@
       }
     }
 
+    // --- Google Sheets 資料 ---
     async function fetchGoogleSheetsData(forceRefresh = false) {
       if (cachedSheetsData && !forceRefresh) return cachedSheetsData;
       try {
         const sep = GOOGLE_SCRIPT_URL.includes("?") ? "&" : "?";
-        const url = `${GOOGLE_SCRIPT_URL}${sep}_t=${Date.now()}`;
-        const res = await fetch(url, { cache: "no-store" });
+        const res = await fetch(`${GOOGLE_SCRIPT_URL}${sep}_t=${Date.now()}`, { cache: "no-store" });
         const data = await res.json();
         if (data?.error) throw new Error(data.error);
         cachedSheetsData = data;
@@ -384,7 +366,6 @@
     }
 
     async function refreshSheetsData() {
-      cachedSheetsData = null;
       ["rosterList", "ltcpRosterList", "eventsList"].forEach(id => {
         document.getElementById(id).innerHTML = '<div class="text-slate-400 italic text-sm">重新同步中...</div>';
       });
@@ -393,8 +374,40 @@
       if (isCalendarViewActive) renderCalendarContent();
     }
 
+    function renderRosterSection(targetId, rowsAll, dateStr, type, data) {
+      const el = document.getElementById(targetId);
+      const list = Array.isArray(rowsAll) ? rowsAll : [];
+      const headers = list[0] || [];
+      const body = list.slice(1);
+      const matched = body.find(r => formatDateString(r[0]) === dateStr);
+
+      if (matched) {
+        el.innerHTML = buildRosterGridHtml(headers, matched, type) || '<div class="text-slate-400 italic">本日無排班記錄</div>';
+        return;
+      }
+
+      if (type === "ltcp") {
+        const sheetsInfo = Array.isArray(data?.availableSheets)
+          ? `分頁清單：[${data.availableSheets.join(", ")}]`
+          : "未收到 availableSheets（請確認 GAS 已建立新版本部署且網址正確）";
+        const sampleDates = body.slice(0, 3).map(r => `${String(r[0] ?? "")} → ${formatDateString(r[0])}`).join(" / ");
+        el.innerHTML = `
+          <div class="text-xs text-slate-500 space-y-1 not-italic">
+            <div>${body.length ? `查無 ${dateStr} 的 LTCP 排班（共 ${body.length} 筆資料）` : "尚未讀到 LTCP roster 資料列"}</div>
+            <div class="text-[11px] text-slate-400">${sheetsInfo}</div>
+            ${sampleDates ? `<div class="text-[11px] text-slate-400">A 欄日期樣本：${sampleDates}</div>` : ""}
+          </div>
+        `;
+      } else {
+        el.innerHTML = '<div class="text-slate-400 italic">本日無排班記錄</div>';
+      }
+    }
+
     async function renderExcelData(dateStr) {
+      const seq = ++renderSeq;
       const data = await fetchGoogleSheetsData();
+      if (seq !== renderSeq) return;
+
       if (!data) {
         ["eventsList", "rosterList", "ltcpRosterList"].forEach(id => {
           document.getElementById(id).innerHTML = '<div class="text-red-400 text-sm">資料讀取失敗</div>';
@@ -402,7 +415,6 @@
         return;
       }
 
-      // 活動
       const events = (data.overview || []).slice(1).filter(r => formatDateString(r[0]) === dateStr);
       document.getElementById("eventsList").innerHTML = events.length
         ? events.map(r => `
@@ -418,41 +430,11 @@
           `).join("")
         : '<div class="text-slate-400 text-sm italic">今日無特別活動</div>';
 
-      // YLCP 值班表
-      const rosterHeaders = data.roster?.[0] || [];
-      const matchedRoster = (data.roster || []).slice(1).find(r => formatDateString(r[0]) === dateStr);
-      document.getElementById("rosterList").innerHTML = matchedRoster
-        ? (buildRosterGridHtml(rosterHeaders, matchedRoster, "ylcp") || '<div class="text-slate-400 italic">本日無排班記錄</div>')
-        : '<div class="text-slate-400 italic">本日無排班記錄</div>';
-
-      // LTCP 值班表（含診斷資訊）
-      const ltcpRowsAll = Array.isArray(data.ltcpRoster) ? data.ltcpRoster : [];
-      const ltcpHeaders = ltcpRowsAll[0] || [];
-      const ltcpBody = ltcpRowsAll.slice(1);
-      const matchedLtcp = ltcpBody.find(r => formatDateString(r[0]) === dateStr);
-
-      if (matchedLtcp) {
-        document.getElementById("ltcpRosterList").innerHTML =
-          buildRosterGridHtml(ltcpHeaders, matchedLtcp, "ltcp") || '<div class="text-slate-400 italic">本日無 LTCP 排班記錄</div>';
-      } else {
-        const sheetsInfo = Array.isArray(data.availableSheets)
-          ? `分頁清單：[${data.availableSheets.join(", ")}]`
-          : "未收到 availableSheets（請確認 GAS 已建立新版本部署且網址正確）";
-        const sampleDates = ltcpBody
-          .slice(0, 3)
-          .map(r => `${String(r[0] ?? "")} → ${formatDateString(r[0])}`)
-          .join(" / ");
-
-        document.getElementById("ltcpRosterList").innerHTML = `
-          <div class="text-xs text-slate-500 space-y-1 not-italic">
-            <div>${ltcpBody.length ? `查無 ${dateStr} 的 LTCP 排班（共 ${ltcpBody.length} 筆資料）` : "尚未讀到 LTCP roster 資料列"}</div>
-            <div class="text-[11px] text-slate-400">${sheetsInfo}</div>
-            ${sampleDates ? `<div class="text-[11px] text-slate-400">A 欄日期樣本：${sampleDates}</div>` : ""}
-          </div>
-        `;
-      }
+      renderRosterSection("rosterList", data.roster, dateStr, "ylcp", data);
+      renderRosterSection("ltcpRosterList", data.ltcpRoster, dateStr, "ltcp", data);
     }
 
+    // --- 月曆視圖 ---
     async function renderGridCalendar() {
       const year = gridViewDate.getFullYear();
       const month = gridViewDate.getMonth();
@@ -464,13 +446,11 @@
       const overviewRows = (data?.overview || []).slice(1);
       const rosterRows = (data?.roster || []).slice(1);
       const headers = data?.roster?.[0] || [];
-
       const startingDay = new Date(year, month, 1).getDay();
       const totalDays = new Date(year, month + 1, 0).getDate();
       const todayStr = formatDateLocal(new Date());
 
       let html = Array.from({ length: startingDay }, () => '<div class="min-h-[96px] bg-slate-50/50 rounded-lg p-1"></div>').join("");
-
       for (let day = 1; day <= totalDays; day++) {
         const dateStr = formatDateLocal(new Date(year, month, day));
         const isToday = dateStr === todayStr;
@@ -520,7 +500,6 @@
           const dateStr = formatDateLocal(loopDate);
           const matchedRoster = rosterRows.find(r => formatDateString(r[0]) === dateStr);
           const dayEvents = overviewRows.filter(r => formatDateString(r[0]) === dateStr);
-
           const eventsHtml = dayEvents.length
             ? dayEvents.map(ev => `<span class="inline-block bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[11px] font-semibold mr-1 mb-1">📌 ${formatTimeString(ev[1])}-${formatTimeString(ev[2])} ${ev[3] || ""}</span>`).join("")
             : '<span class="text-slate-400 italic text-[11px]">無預定活動</span>';
@@ -550,6 +529,7 @@
       container.innerHTML = monthsHtml;
     }
 
+    // --- 查詢功能 ---
     async function searchActivitySlot() {
       const searchDate = document.getElementById("slotSearchDate").value;
       const resultEl = document.getElementById("slotSearchResult");
@@ -622,6 +602,7 @@
       }).join("");
     }
 
+    // --- 日期控制與手勢 ---
     function loadDataForDate(date) {
       const dateStr = formatDateLocal(date);
       document.getElementById("currentDateDisplay").innerHTML = `<span>${dateStr}</span> <span class="text-xs text-slate-400">📅</span>`;
