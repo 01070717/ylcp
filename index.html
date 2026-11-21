@@ -2,7 +2,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YLCP Dashboard</title>
+  <title>YLCP & LTCP Dashboard</title>
   <!-- Tailwind CSS 快速排版 -->
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
@@ -18,7 +18,7 @@
 
   <!-- 頂部列 -->
   <header class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
-    <h1 class="text-xl font-bold">YLCP Dashboard</h1>
+    <h1 class="text-xl font-bold">YLCP & LTCP Dashboard</h1>
     <div class="flex items-center space-x-2">
       <button onclick="toggleCalendarView()" id="viewToggleBtn" class="text-xs bg-blue-700 hover:bg-blue-800 text-white px-3 py-1.5 rounded-lg font-semibold transition-colors shadow-sm">
         📅 查看活動月曆
@@ -80,14 +80,25 @@
       </div>
     </div>
 
-    <!-- 職員值班表卡片 (來自 DutyRoster Sheet) -->
+    <!-- YLCP 職員值班表卡片 (來自 DutyRoster Sheet) -->
     <div class="bg-white p-4 rounded-xl shadow">
-      <div class="flex items-center space-x-2 text-sm font-bold text-indigo-600 mb-2 border-b pb-2">
+      <div class="flex items-center space-x-2 text-sm font-bold text-blue-600 mb-2 border-b pb-2">
         <span>👥</span>
-        <span>職員值班表</span>
+        <span>YLCP 職員值班表</span>
       </div>
       <div id="rosterList" class="space-y-3">
         <div class="text-sm text-slate-400 italic">載入資料中...</div>
+      </div>
+    </div>
+
+    <!-- LTCP 職員值班表卡片 (來自 LTCP roster Sheet - 預留) -->
+    <div class="bg-white p-4 rounded-xl shadow">
+      <div class="flex items-center space-x-2 text-sm font-bold text-orange-600 mb-2 border-b pb-2">
+        <span>👥</span>
+        <span>LTCP 職員值班表</span>
+      </div>
+      <div id="ltcpRosterList" class="space-y-3">
+        <div class="text-sm text-slate-400 italic">尚未建立 LTCP roster 工作表或無資料</div>
       </div>
     </div>
 
@@ -154,11 +165,10 @@
   <main id="calendarOverviewView" class="hidden flex-1 p-4 max-w-4xl mx-auto w-full space-y-4">
     <div class="bg-white p-4 rounded-xl shadow flex flex-wrap justify-between items-center gap-2">
       <div>
-        <h2 class="text-lg font-bold text-slate-800">📅 活動與指定職員值班月曆</h2>
-        <p class="text-xs text-slate-500">（包含 R, L, A, G, S 值班狀況）</p>
+        <h2 class="text-lg font-bold text-slate-800">📅 活動與職員值班月曆 (YLCP & LTCP)</h2>
+        <p class="text-xs text-slate-500">（包含 YLCP 及 LTCP 職員值班狀況）</p>
       </div>
       <div class="flex items-center space-x-2">
-        <!-- 模式切換按鈕 -->
         <button onclick="switchCalendarDisplayMode()" id="modeToggleBtn" class="px-3 py-1.5 text-xs font-bold bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 rounded-lg transition-colors">
           📋 切換為傳統月曆模式
         </button>
@@ -202,16 +212,15 @@
   <script>
     // --- 1. 設定與變數 ---
     let currentDate = new Date();
-    let gridViewDate = new Date(); // 傳統月曆模式切換月份用
+    let gridViewDate = new Date();
     
     // Google Apps Script Web App URL
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwZyGKBgZCXkuvHNEbI1_cbs6mq9eHWXOTBMUMvTRtV0fLtvAzMIZXjRJk_Ojd1pNlA/exec";
 
     let cachedSheetsData = null;
     let isCalendarViewActive = false;
-    let calendarDisplayMode = "list"; // 'list' 表示 3 個月列表，'grid' 表示傳統單月月曆
+    let calendarDisplayMode = "list"; 
 
-    // 格式化 Date 物件為本地時區 YYYY-MM-DD
     function formatDateLocal(d) {
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -230,45 +239,38 @@
       document.getElementById("weatherIconPlaceholder").classList.remove("hidden");
     }
 
-    // 取得職員名字的首字母大寫
     function getStaffInitial(name) {
       if (!name) return "";
       const trimmed = String(name).trim();
       return trimmed.charAt(0).toUpperCase();
     }
 
-    // 依據值班狀態回傳對應卡片顏色樣式 (AL/CL黃色, SL綠色, OFF/休/PH/O紅色)
-    function getShiftCardStyle(shift) {
+    // 依據值班狀態與類別回傳樣式 (YLCP: 淺藍/黃/綠/紅, LTCP: 粉橙色系)
+    function getShiftCardStyle(shift, type = 'ylcp') {
       const cleanShift = String(shift || "").trim().toUpperCase();
 
-      if (cleanShift === 'AL' || cleanShift === 'CL') {
-        return {
-          card: 'bg-amber-50 border-amber-200',
-          name: 'text-amber-700',
-          shift: 'text-amber-600',
-          displayText: shift
-        };
-      } else if (cleanShift === 'SL') {
-        return {
-          card: 'bg-emerald-50 border-emerald-200',
-          name: 'text-emerald-700',
-          shift: 'text-emerald-600',
-          displayText: shift
-        };
-      } else if (cleanShift === 'OFF' || cleanShift === '休' || cleanShift === 'PH' || cleanShift === 'O') {
-        return {
-          card: 'bg-rose-50 border-rose-200',
-          name: 'text-rose-700',
-          shift: 'text-rose-600',
-          displayText: '休'
-        };
+      if (type === 'ltcp') {
+        // LTCP 專屬粉橙色系
+        if (cleanShift === 'AL' || cleanShift === 'CL') {
+          return { card: 'bg-orange-50 border-orange-200', name: 'text-orange-700', shift: 'text-orange-600', displayText: shift };
+        } else if (cleanShift === 'SL') {
+          return { card: 'bg-emerald-50 border-emerald-200', name: 'text-emerald-700', shift: 'text-emerald-600', displayText: shift };
+        } else if (cleanShift === 'OFF' || cleanShift === '休' || cleanShift === 'PH' || cleanShift === 'O') {
+          return { card: 'bg-rose-50 border-rose-200', name: 'text-rose-700', shift: 'text-rose-600', displayText: '休' };
+        } else {
+          return { card: 'bg-orange-50/70 border-orange-200', name: 'text-orange-700', shift: 'text-orange-800', displayText: shift };
+        }
       } else {
-        return {
-          card: 'bg-slate-50 border-slate-200',
-          name: 'text-slate-500',
-          shift: 'text-indigo-700',
-          displayText: shift
-        };
+        // YLCP 專屬淺藍色系
+        if (cleanShift === 'AL' || cleanShift === 'CL') {
+          return { card: 'bg-amber-50 border-amber-200', name: 'text-amber-700', shift: 'text-amber-600', displayText: shift };
+        } else if (cleanShift === 'SL') {
+          return { card: 'bg-emerald-50 border-emerald-200', name: 'text-emerald-700', shift: 'text-emerald-600', displayText: shift };
+        } else if (cleanShift === 'OFF' || cleanShift === '休' || cleanShift === 'PH' || cleanShift === 'O') {
+          return { card: 'bg-rose-50 border-rose-200', name: 'text-rose-700', shift: 'text-rose-600', displayText: '休' };
+        } else {
+          return { card: 'bg-slate-50 border-slate-200', name: 'text-slate-500', shift: 'text-indigo-700', displayText: shift };
+        }
       }
     }
 
@@ -471,6 +473,7 @@
       if (!data) {
         document.getElementById("eventsList").innerHTML = '<div class="text-red-400 text-sm">Google Sheets 資料讀取失敗</div>';
         document.getElementById("rosterList").innerHTML = '<div class="text-sm text-red-400">Google Sheets 資料讀取失敗</div>';
+        document.getElementById("ltcpRosterList").innerHTML = '<div class="text-sm text-slate-400">Google Sheets 資料讀取失敗</div>';
         return;
       }
 
@@ -504,7 +507,7 @@
         document.getElementById("eventsList").innerHTML = '<div class="text-slate-400 text-sm italic">今日無特別活動</div>';
       }
 
-      // --- B. 渲染 DutyRoster 職員值班表 (僅保留名字首字母) ---
+      // --- B1. 渲染 YLCP DutyRoster (淺藍色) ---
       const rosterRows = (data.roster || []).slice(1);
       const headers = (data.roster || [])[0] || [];
       const matchedRoster = rosterRows.find(row => formatDateString(row[0]) === dateStr);
@@ -514,7 +517,7 @@
           const fullName = headers[index] || `Staff${String(index).padStart(2, '0')}`;
           const staffInitial = getStaffInitial(fullName);
           const rawShift = matchedRoster[index] || "休";
-          const style = getShiftCardStyle(rawShift);
+          const style = getShiftCardStyle(rawShift, 'ylcp');
 
           return `
             <div class="${style.card} p-2 rounded border text-center transition-colors">
@@ -534,23 +537,48 @@
           return `<div class="grid grid-cols-5 gap-2">${cols.join('')}</div>`;
         };
 
-        const row1 = renderStaffGroup(1, 5);  
-        const row2 = renderStaffGroup(6, 10); 
-        const row3 = renderStaffGroup(11, 15); 
-
-        let rosterHtml = `<div class="space-y-2">${row1}${row2}`;
-        if (row3.includes('grid-cols-5')) {
-          rosterHtml += row3;
-        }
+        let rosterHtml = `<div class="space-y-2">${renderStaffGroup(1, 5)}${renderStaffGroup(6, 10)}`;
+        let row3 = renderStaffGroup(11, 15);
+        if (row3.includes('grid-cols-5')) rosterHtml += row3;
         rosterHtml += `</div>`;
 
         document.getElementById("rosterList").innerHTML = rosterHtml;
       } else {
         document.getElementById("rosterList").innerHTML = '<div class="text-sm text-slate-400 italic">本日無排班記錄</div>';
       }
+
+      // --- B2. 渲染 LTCP roster (粉橙色 - 預留對應 data.ltcpRoster) ---
+      const ltcpData = data.ltcpRoster || data['LTCP roster'] || null;
+      if (ltcpData && ltcpData.length > 1) {
+        const ltcpRows = ltcpData.slice(1);
+        const ltcpHeaders = ltcpData[0] || [];
+        const matchedLtcpRoster = ltcpRows.find(row => formatDateString(row[0]) === dateStr);
+
+        if (matchedLtcpRoster) {
+          let ltcpCols = [];
+          for (let i = 1; i < ltcpHeaders.length; i++) {
+            const fullName = ltcpHeaders[i] || `LStaff${i}`;
+            const staffInitial = getStaffInitial(fullName);
+            const rawShift = matchedLtcpRoster[i] || "休";
+            const style = getShiftCardStyle(rawShift, 'ltcp');
+
+            ltcpCols.push(`
+              <div class="${style.card} p-2 rounded border text-center transition-colors">
+                <div class="text-xs ${style.name} truncate">${staffInitial}</div>
+                <div class="text-sm font-bold ${style.shift} truncate">${style.displayText}</div>
+              </div>
+            `);
+          }
+          document.getElementById("ltcpRosterList").innerHTML = `<div class="grid grid-cols-5 gap-2">${ltcpCols.join('')}</div>`;
+        } else {
+          document.getElementById("ltcpRosterList").innerHTML = '<div class="text-sm text-slate-400 italic">本日無 LTCP 排班記錄</div>';
+        }
+      } else {
+        document.getElementById("ltcpRosterList").innerHTML = '<div class="text-sm text-slate-400 italic">尚無 LTCP roster 工作表資料</div>';
+      }
     }
 
-    // --- 3.3A 渲染傳統單月網格月曆 (職員名字只留首字) ---
+    // --- 3.3A 渲染傳統單月網格月曆 ---
     async function renderGridCalendar() {
       const year = gridViewDate.getFullYear();
       const month = gridViewDate.getMonth();
@@ -586,7 +614,7 @@
         targetStaffs.forEach(staffName => {
           const staffIndex = headers.findIndex(h => String(h || "").trim().toLowerCase() === staffName.toLowerCase());
           const shift = (matchedRoster && staffIndex !== -1 && matchedRoster[staffIndex]) ? matchedRoster[staffIndex] : "休";
-          const style = getShiftCardStyle(shift);
+          const style = getShiftCardStyle(shift, 'ylcp');
           const initial = getStaffInitial(staffName);
 
           staffBadges += `
@@ -622,7 +650,7 @@
       gridDays.innerHTML = cellsHtml;
     }
 
-    // --- 3.3B 渲染 3 個月列表月曆 (職員名字只留首字) ---
+    // --- 3.3B 渲染 3 個月列表月曆 ---
     async function renderThreeMonthCalendar() {
       const container = document.getElementById("threeMonthCalendarContainer");
       container.innerHTML = '<div class="bg-white p-6 rounded-xl shadow text-center text-slate-400 italic">正在載入資料中...</div>';
@@ -666,7 +694,7 @@
           targetStaffs.forEach(staffName => {
             const staffIndex = headers.findIndex(h => String(h || "").trim().toLowerCase() === staffName.toLowerCase());
             let shift = (matchedRoster && staffIndex !== -1 && matchedRoster[staffIndex]) ? matchedRoster[staffIndex] : "休";
-            let style = getShiftCardStyle(shift);
+            let style = getShiftCardStyle(shift, 'ylcp');
             let initial = getStaffInitial(staffName);
             
             staffRosterHtml += `
@@ -691,7 +719,7 @@
                 <span>📅 ${dateStr} (${['日','一','二','三','四','五','六'][loopDate.getDay()]} )</span>
               </div>
               <div class="space-y-1">
-                <div class="text-xs font-semibold text-slate-600">👤 指定職員 Roster (R, L, A, G, S)：</div>
+                <div class="text-xs font-semibold text-slate-600">👤 YLCP 職員 Roster (R, L, A, G, S)：</div>
                 <div>${staffRosterHtml}</div>
               </div>
               <div class="space-y-1 pt-1 border-t border-slate-200/60">
@@ -750,14 +778,14 @@
       const headers = (data.roster || [])[0] || [];
       const matchedRoster = rosterRows.find(row => formatDateString(row[0]) === searchDate);
 
-      const targetStaffs = ["Robin", "Lawrence", "Anson", "Grace"];
+      const targetStaffs = ["Robin", "Lawrence", "Anson", "Grace", "Stanley"];
       let staffHtml = "";
 
       if (matchedRoster) {
         staffHtml = targetStaffs.map(staff => {
           const staffIndex = headers.findIndex(h => String(h || "").trim().toLowerCase() === staff.toLowerCase());
           const rawShift = (staffIndex !== -1 && matchedRoster[staffIndex]) ? matchedRoster[staffIndex] : "無紀錄";
-          const style = getShiftCardStyle(rawShift);
+          const style = getShiftCardStyle(rawShift, 'ylcp');
           const initial = getStaffInitial(staff);
 
           return `
@@ -768,7 +796,7 @@
           `;
         }).join("");
       } else {
-        staffHtml = `<div class="col-span-4 text-slate-400 italic text-center">無排班資料</div>`;
+        staffHtml = `<div class="col-span-5 text-slate-400 italic text-center">無排班資料</div>`;
       }
 
       resultContainer.innerHTML = `
@@ -780,8 +808,8 @@
             </ul>
           </div>
           <div class="border-t border-amber-200/60 pt-2">
-            <div class="font-bold text-slate-700 mb-1.5">👤 指定職員排班狀況：</div>
-            <div class="grid grid-cols-4 gap-1.5">
+            <div class="font-bold text-slate-700 mb-1.5">👤 YLCP 指定職員排班狀況 (R, L, A, G, S)：</div>
+            <div class="grid grid-cols-5 gap-1.5">
               ${staffHtml}
             </div>
           </div>
